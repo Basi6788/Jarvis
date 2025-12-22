@@ -15,4 +15,5 @@
     <color name="jarvis_accent">#FFD700</color>
     <color name="jarvis_card">#1A2433</color>
     <color name="text_glow">#CCFFFFFF</color>
+  <color name="card_grey">#1A2433</color> 
 </resources>
