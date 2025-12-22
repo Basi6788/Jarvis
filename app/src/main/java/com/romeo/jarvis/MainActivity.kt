@@ -21,6 +21,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.romeo.jarvis.fragments.ChatFragment
 import com.romeo.jarvis.services.JarvisService
 import com.romeo.jarvis.utils.ChatRequest
 import com.romeo.jarvis.utils.ChatResponse
@@ -31,11 +32,11 @@ import retrofit2.Response
 
 class MainActivity : AppCompatActivity() {
 
-    // UI Components (Naye XML IDs ke mutabiq)
+    // UI Components
     private lateinit var aiOrb: ImageView
     private lateinit var btnMic: ImageButton
     private lateinit var txtPrompt: TextView
-    private lateinit var statusLabel: TextView // "ONLINE" label ke liye
+    private lateinit var statusLabel: TextView
     
     // Layout Containers
     private lateinit var homeLayout: RelativeLayout
@@ -54,20 +55,26 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // 1. Views Initialization
-        initializeViews()
+        // 1. Initialize Views (IDs check kar lena XML se match honi chahiye)
+        try {
+            initializeViews()
+            
+            // 2. Start Animations
+            startOrbAnimation()
 
-        // 2. Start Iron Man Rotation Animation
-        startOrbAnimation()
+            // 3. Setup Navigation Logic
+            setupNavigation()
 
-        // 3. Permissions Check (Tumhara purana logic)
-        checkAndRequestPermissions()
+            // 4. Setup Mic Button
+            setupMicButton()
 
-        // 4. Navigation Clicks Setup
-        setupNavigation()
-
-        // 5. Mic Button Logic (Touch & Animation)
-        setupMicButton()
+            // 5. Check Permissions
+            checkAndRequestPermissions()
+            
+        } catch (e: Exception) {
+            Log.e("JarvisMain", "Error in onCreate: ${e.message}")
+            Toast.makeText(this, "Error initializing Jarvis", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun initializeViews() {
@@ -75,7 +82,9 @@ class MainActivity : AppCompatActivity() {
         aiOrb = findViewById(R.id.aiOrb)
         btnMic = findViewById(R.id.btnMic)
         txtPrompt = findViewById(R.id.txtPrompt)
-        statusLabel = findViewById(R.id.statusLabel) // Agar XML me id nahi di, to wahan id add karlena
+        
+        // Note: XML me agar statusLabel ka ID nahi hai to add karlena, filhal main avoid crash ke liye check laga raha hun
+        statusLabel = findViewById(R.id.statusLabel) ?: TextView(this) 
         
         // Containers
         homeLayout = findViewById(R.id.homeLayout)
@@ -91,41 +100,42 @@ class MainActivity : AppCompatActivity() {
     // ================= ANIMATIONS =================
 
     private fun startOrbAnimation() {
-        // Ye circle ko infinite ghumata rahega
-        rotateAnim = ObjectAnimator.ofFloat(aiOrb, "rotation", 0f, 360f).apply {
-            duration = 8000 // 8 seconds per round (Slow & Techy)
-            repeatCount = ObjectAnimator.INFINITE
-            interpolator = LinearInterpolator()
-            start()
+        if (::aiOrb.isInitialized) {
+            rotateAnim = ObjectAnimator.ofFloat(aiOrb, "rotation", 0f, 360f).apply {
+                duration = 8000 // Slow rotation
+                repeatCount = ObjectAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                start()
+            }
         }
     }
 
-    // ================= MIC & TOUCH LOGIC =================
+    // ================= MIC LOGIC =================
 
     private fun setupMicButton() {
         btnMic.setOnTouchListener { v, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    // Button dabane par thoda bada ho (Scale Up)
+                    // Button Scale Up Animation
                     v.animate().scaleX(1.1f).scaleY(1.1f).setDuration(100).start()
                     
                     statusLabel.text = "JARVIS • LISTENING"
                     statusLabel.setTextColor(ContextCompat.getColor(this, android.R.color.holo_red_light))
                     txtPrompt.text = "Listening..."
                     
-                    // Service start (Background processing)
+                    // Service Start
                     startJarvisService()
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    // Button wapis normal ho (Scale Down)
+                    // Button Scale Down
                     v.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
                     
                     statusLabel.text = "JARVIS • PROCESSING"
                     statusLabel.setTextColor(ContextCompat.getColor(this, android.R.color.holo_orange_light))
                     
-                    // Backend Request
-                    connectToBackend("Hello Jarvis, testing new UI!") 
+                    // Backend Request (Test Message)
+                    connectToBackend("Hello Jarvis") 
                     true
                 }
                 else -> false
@@ -133,7 +143,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ================= NAVIGATION SYSTEM =================
+    // ================= NAVIGATION SYSTEM (FIXED) =================
 
     private fun setupNavigation() {
         navVoice.setOnClickListener { updateUIState("Voice") }
@@ -143,45 +153,61 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateUIState(state: String) {
-        // Pehle sab icons ko dim (transparent) karo
+        // 1. Reset Icons Alpha (Dim look)
         navVoice.alpha = 0.5f
         navChat.alpha = 0.5f
         navData.alpha = 0.5f
         navSettings.alpha = 0.5f
 
-        // Colors reset (Default White)
-        val defaultColor = ContextCompat.getColor(this, android.R.color.white)
-        val goldColor = 0xFFD700.toInt() // Gold Color manually or resource se le lo
+        // 2. Reset Icons Color (White)
+        val whiteColor = ContextCompat.getColor(this, android.R.color.white)
+        val goldColor = 0xFFD700.toInt() // Gold
 
-        navVoice.setColorFilter(defaultColor)
-        navChat.setColorFilter(defaultColor)
-        navData.setColorFilter(defaultColor)
-        navSettings.setColorFilter(defaultColor)
+        navVoice.setColorFilter(whiteColor)
+        navChat.setColorFilter(whiteColor)
+        navData.setColorFilter(whiteColor)
+        navSettings.setColorFilter(whiteColor)
 
-        // Ab active tab ko highlight karo
+        // 3. Handle States
         when (state) {
             "Voice" -> {
                 navVoice.alpha = 1f
                 navVoice.setColorFilter(goldColor)
-                homeLayout.visibility = View.VISIBLE // Orb wapis dikhao
+                
+                // Show Home, Remove Chat Fragment
+                homeLayout.visibility = View.VISIBLE
+                val fragment = supportFragmentManager.findFragmentByTag("CHAT_TAG")
+                if (fragment != null) {
+                    supportFragmentManager.beginTransaction().remove(fragment).commit()
+                }
                 txtPrompt.text = "How may I assist you, sir?"
+                statusLabel.text = "JARVIS • ONLINE"
             }
             "Chat" -> {
                 navChat.alpha = 1f
                 navChat.setColorFilter(goldColor)
-                homeLayout.visibility = View.GONE // Orb chupao taake chat dikhe
-                // Yahan tum ChatFragment load karoge (Future Step)
-                Toast.makeText(this, "Opening Secure Chat...", Toast.LENGTH_SHORT).show()
+                
+                // Hide Home, Show Chat Fragment
+                homeLayout.visibility = View.GONE
+                
+                // Check if fragment is already added to avoid overlap
+                val existingFragment = supportFragmentManager.findFragmentByTag("CHAT_TAG")
+                if (existingFragment == null) {
+                    supportFragmentManager.beginTransaction()
+                        .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out)
+                        .add(R.id.fragmentContainer, ChatFragment(), "CHAT_TAG")
+                        .commit()
+                }
             }
             "Data" -> {
                 navData.alpha = 1f
                 navData.setColorFilter(goldColor)
-                Toast.makeText(this, "Accessing System Data...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "System Data Access: Denied", Toast.LENGTH_SHORT).show()
             }
             "Settings" -> {
                 navSettings.alpha = 1f
                 navSettings.setColorFilter(goldColor)
-                Toast.makeText(this, "Opening Configuration...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Opening Settings...", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -189,7 +215,7 @@ class MainActivity : AppCompatActivity() {
     // ================= BACKEND CONNECTION =================
     
     private fun connectToBackend(message: String) {
-        txtPrompt.text = "Thinking..." // Update Prompt
+        txtPrompt.text = "Thinking..."
         
         val request = ChatRequest(message = message, mode = "voice")
         
@@ -198,36 +224,28 @@ class MainActivity : AppCompatActivity() {
                 if (response.isSuccessful && response.body() != null) {
                     val aiReply = response.body()!!.reply
                     
-                    // UI Update
                     txtPrompt.text = aiReply
                     statusLabel.text = "JARVIS • ONLINE"
-                    statusLabel.setTextColor(0xFF00FF00.toInt()) // Green Color
+                    statusLabel.setTextColor(0xFF00FF00.toInt()) // Green
                     
-                    Log.d("JarvisAI", "Reply: $aiReply")
-                    // TTS logic yahan ayegi
                 } else {
-                    txtPrompt.text = "Server Error: ${response.code()}"
-                    statusLabel.text = "JARVIS • ERROR"
+                    txtPrompt.text = "Error: ${response.code()}"
                 }
             }
 
             override fun onFailure(call: Call<ChatResponse>, t: Throwable) {
                 txtPrompt.text = "Connection Failed"
                 statusLabel.text = "JARVIS • OFFLINE"
-                Log.e("JarvisAI", "Error: ${t.message}")
             }
         })
     }
 
-    // ================= PERMISSIONS & SERVICE (SAME AS BEFORE) =================
+    // ================= PERMISSIONS & SERVICE =================
 
     private fun checkAndRequestPermissions() {
         val permissions = mutableListOf<String>()
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             permissions.add(Manifest.permission.RECORD_AUDIO)
-        }
-        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-            permissions.add(Manifest.permission.READ_CONTACTS)
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
@@ -243,15 +261,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkAdvancedPermissions() {
         if (!Settings.canDrawOverlays(this)) {
-            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
-            startActivity(intent)
-            return
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!android.os.Environment.isExternalStorageManager()) {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))
-                startActivity(intent)
-            }
+            // Toast remove kar diya taake bar bar popup na aye
         }
     }
 
