@@ -1,15 +1,15 @@
 package com.romeo.jarvis.services
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.app.Service
 import android.os.IBinder
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.romeo.jarvis.R
@@ -17,6 +17,7 @@ import com.romeo.jarvis.utils.SystemController
 import java.util.*
 
 class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListener {
+
     private lateinit var speechRecognizer: SpeechRecognizer
     private lateinit var speechIntent: Intent
     private lateinit var tts: TextToSpeech
@@ -25,6 +26,10 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
     override fun onCreate() {
         super.onCreate()
         tts = TextToSpeech(this, this)
+        setupSpeechRecognizer()
+    }
+
+    private fun setupSpeechRecognizer() {
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
         speechRecognizer.setRecognitionListener(this)
         speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -34,41 +39,102 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val channelId = "JarvisChannel"
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(channelId, "Jarvis", NotificationManager.IMPORTANCE_LOW))
-        
-        // Using ic_launcher_background because it definitely exists now
-        val notification = NotificationCompat.Builder(this, channelId)
+        // Notification for Foreground Service
+        val notification = NotificationCompat.Builder(this, "JarvisChannel")
             .setContentTitle("Jarvis AI")
-            .setContentText("Listening...")
-            .setSmallIcon(R.drawable.ic_launcher_background) 
+            .setContentText("Online & Listening")
+            .setSmallIcon(R.drawable.ic_launcher_background)
             .build()
         startForeground(1, notification)
         
-        try { speechRecognizer.startListening(speechIntent) } catch(e: Exception){}
+        startListening()
         return START_STICKY
+    }
+
+    private fun startListening() {
+        try { speechRecognizer.startListening(speechIntent) } catch(e: Exception){ restartListening() }
+    }
+    
+    private fun restartListening() {
+        speechRecognizer.stopListening()
+        Thread.sleep(100)
+        startListening()
     }
 
     override fun onResults(results: Bundle?) {
         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         if (!matches.isNullOrEmpty()) {
             val text = matches[0].lowercase()
+            Log.d("Jarvis", "Heard: $text")
+
             if (text.contains(WAKE_WORD)) {
                 val cmd = text.substringAfter(WAKE_WORD).trim()
-                if (cmd.startsWith("run")) SystemController.runTermuxCommand(this, cmd.removePrefix("run"))
-                else if (cmd.contains("delete")) SystemController.deleteFileOrFolder("/sdcard/Test")
-                tts.speak("Executed: $cmd", TextToSpeech.QUEUE_FLUSH, null, null)
+                executeCommand(cmd)
             }
         }
-        speechRecognizer.startListening(speechIntent)
+        startListening()
     }
 
-    override fun onError(error: Int) {
-        speechRecognizer.startListening(speechIntent)
+    private fun executeCommand(command: String) {
+        when {
+            // CALL LOGIC
+            command.startsWith("call") -> {
+                val number = command.replace("call", "").trim()
+                speak("Calling $number")
+                val intent = Intent(Intent.ACTION_CALL)
+                intent.data = Uri.parse("tel:$number")
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+            }
+            
+            // WHATSAPP LOGIC
+            command.contains("open whatsapp") -> {
+                speak("Opening WhatsApp")
+                launchApp("com.whatsapp")
+            }
+            
+            // APP OPEN LOGIC (Universal)
+            command.startsWith("open") -> {
+                val appName = command.replace("open", "").trim()
+                speak("Opening $appName")
+                openAppByName(appName)
+            }
+
+            // TERMUX LOGIC
+            command.startsWith("run") -> {
+                val tCmd = command.removePrefix("run").trim()
+                speak("Running command")
+                SystemController.runTermuxCommand(this, tCmd)
+            }
+
+            else -> speak("I didn't understand: $command")
+        }
     }
 
-    override fun onInit(status: Int) {}
+    private fun openAppByName(appName: String) {
+        val pm = packageManager
+        val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        var found = false
+        for (pkg in packages) {
+            val label = pm.getApplicationLabel(pkg).toString().lowercase()
+            if (label.contains(appName)) {
+                val intent = pm.getLaunchIntentForPackage(pkg.packageName)
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                    found = true
+                    break
+                }
+            }
+        }
+        if (!found) speak("App not found")
+    }
+
+    // TTS & Boilerplate
+    override fun onInit(status: Int) { if (status == TextToSpeech.SUCCESS) tts.language = Locale.US }
+    private fun speak(text: String) { tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null) }
+    
+    override fun onError(error: Int) { restartListening() }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onReadyForSpeech(params: Bundle?) {}
     override fun onBeginningOfSpeech() {}

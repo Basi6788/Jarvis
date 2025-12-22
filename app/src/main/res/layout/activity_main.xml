@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/black_background"
@@ -9,16 +10,68 @@
         android:id="@+id/statusLabel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="AI Buddy • Online"
+        android:text="JARVIS • SYSTEM ONLINE"
         android:textColor="@color/neon_green"
-        android:layout_centerHorizontal="true"/>
+        android:letterSpacing="0.2"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="20dp"/>
+
+    <ImageView
+        android:id="@+id/aiAvatar"
+        android:layout_width="250dp"
+        android:layout_height="250dp"
+        android:src="@drawable/bg_circle_neon"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="100dp"
+        android:elevation="10dp"/>
+
+    <TextView
+        android:id="@+id/greetingText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Waiting for command..."
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:layout_below="@id/aiAvatar"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="30dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_below="@id/greetingText"
+        android:layout_marginTop="40dp"
+        android:weightSum="2">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="100dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_neon_card"
+            android:gravity="center"
+            android:layout_marginEnd="10dp">
+            <TextView text="COMMANDS" android:textStyle="bold"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="100dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_grey_card"
+            android:gravity="center">
+            <TextView text="TERMINAL" android:textColor="#FFF"/>
+        </LinearLayout>
+    </LinearLayout>
 
     <ImageButton
         android:id="@+id/btnMic"
-        android:layout_width="80dp"
-        android:layout_height="80dp"
+        android:layout_width="70dp"
+        android:layout_height="70dp"
         android:background="@drawable/bg_circle_neon"
+        android:src="@drawable/ic_launcher_background"
         android:layout_alignParentBottom="true"
         android:layout_centerHorizontal="true"
         android:layout_marginBottom="30dp"/>
+
 </RelativeLayout>
