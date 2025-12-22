@@ -6,48 +6,126 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.MotionEvent
+import android.view.animation.Animation
+import android.view.animation.AnimationUtils
 import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import com.romeo.jarvis.services.JarvisService
 
 class MainActivity : AppCompatActivity() {
+
+    private lateinit var orb: ImageView
+    private lateinit var micBtn: ImageButton
+    private lateinit var statusText: TextView
+
+    private lateinit var idleAnim: Animation
+    private lateinit var listenAnim: Animation
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // 1. Basic Permissions (Mic, Contacts, Storage)
-        ActivityCompat.requestPermissions(this, arrayOf(
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.READ_CONTACTS,
-            Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE
-        ), 101)
+        // UI
+        orb = findViewById(R.id.aiAvatar)
+        micBtn = findViewById(R.id.btnMic)
+        statusText = findViewById(R.id.greetingText)
 
-        // 2. Overlay Permission (Screen ke upar ane ke liye)
+        // Animations
+        idleAnim = AnimationUtils.loadAnimation(this, R.anim.orb_idle)
+        listenAnim = AnimationUtils.loadAnimation(this, R.anim.orb_listening)
+
+        startIdleState()
+
+        // ================= PERMISSIONS =================
+
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.READ_CONTACTS,
+                Manifest.permission.CALL_PHONE,
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ),
+            101
+        )
+
+        // Overlay Permission
         if (!Settings.canDrawOverlays(this)) {
-            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
-            startActivity(intent)
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+            )
         }
 
-        // 3. All Files Permission (Android 11+ ke liye)
+        // All Files Access (Android 11+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!android.os.Environment.isExternalStorageManager()) {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))
-                startActivity(intent)
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                )
             }
         }
 
-        findViewById<ImageButton>(R.id.btnMic).setOnClickListener {
-            Toast.makeText(this, "Connecting to Brain...", Toast.LENGTH_SHORT).show()
-            val serviceIntent = Intent(this, JarvisService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
+        // ================= MIC BUTTON LOGIC =================
+
+        micBtn.setOnTouchListener { _, event ->
+            when (event.action) {
+
+                MotionEvent.ACTION_DOWN -> {
+                    startListeningState()
+                    startJarvisService()
+                    true
+                }
+
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    stopListeningState()
+                    true
+                }
+
+                else -> false
             }
+        }
+    }
+
+    // ================= STATES =================
+
+    private fun startIdleState() {
+        orb.clearAnimation()
+        orb.startAnimation(idleAnim)
+        statusText.text = "Touch mic to talk with Jarvis"
+    }
+
+    private fun startListeningState() {
+        orb.clearAnimation()
+        orb.startAnimation(listenAnim)
+        statusText.text = "Listening..."
+    }
+
+    private fun stopListeningState() {
+        startIdleState()
+    }
+
+    // ================= SERVICE =================
+
+    private fun startJarvisService() {
+        Toast.makeText(this, "Jarvis online", Toast.LENGTH_SHORT).show()
+        val intent = Intent(this, JarvisService::class.java)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
         }
     }
 }
