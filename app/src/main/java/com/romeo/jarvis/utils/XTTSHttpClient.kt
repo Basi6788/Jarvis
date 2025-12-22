@@ -35,7 +35,7 @@ object XTTSHttpClient {
 
             override fun onResponse(call: Call, res: Response) {
                 if (!res.isSuccessful) {
-                    println("Error: ${res.code()}")
+                    println("Error: ${res.code}") // Fix: Use response.code instead of code()
                     onFail()
                     return
                 }
