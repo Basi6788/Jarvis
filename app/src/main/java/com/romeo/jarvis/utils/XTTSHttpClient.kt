@@ -17,8 +17,8 @@ object XTTSHttpClient {
           {"text":"$text","language":"$lang","speaker":"venom"}
         """.trimIndent()
 
-        val mediaType = "application/json".toMediaType()
-        val body = json.toRequestBody(mediaType)
+        val mediaType = "application/json".toMediaType()  // Correct MediaType
+        val body = json.toRequestBody(mediaType)  // Correct RequestBody
 
         val req = Request.Builder()
             .url(url) // e.g. https://romeo-backend.vercel.app/api/tts
