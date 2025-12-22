@@ -79,4 +79,11 @@ class OrbOverlayService : Service() {
         if (::orbView.isInitialized) windowManager.removeView(orbView)
         super.onDestroy()
     }
+// Call this frequently with 0..1 level
+fun updateLevel(level: Float) {
+    val scale = 1f + (level * 0.35f)
+    orbCore.scaleX = scale
+    orbCore.scaleY = scale
+    orbGlow.alpha = (0.4f + level * 0.6f).coerceIn(0f, 1f)
+}
 }
