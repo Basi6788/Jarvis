@@ -66,6 +66,10 @@
             android:exported="false"
             android:foregroundServiceType="microphone"
             android:stopWithTask="false" />
+<service
+    android:name=".services.OrbOverlayService"
+    android:exported="false"
+    android:stopWithTask="false"/>
 
         <!-- ================= ACCESSIBILITY SERVICE (CORE POWER) ================= -->
 
