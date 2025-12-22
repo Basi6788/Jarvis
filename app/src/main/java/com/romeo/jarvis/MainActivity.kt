@@ -37,7 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnMic: ImageButton
     private lateinit var txtPrompt: TextView
     private lateinit var statusLabel: TextView
-    
+
     // Layout Containers
     private lateinit var homeLayout: RelativeLayout
     private lateinit var fragmentContainer: FrameLayout
