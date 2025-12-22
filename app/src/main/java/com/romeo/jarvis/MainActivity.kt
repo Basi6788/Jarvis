@@ -31,7 +31,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         // UI
-        orb = findViewById(R.id.aiAvatar)
+        //orb = findViewById(R.id.aiAvatar)
         micBtn = findViewById(R.id.btnMic)
         statusText = findViewById(R.id.greetingText)
 
