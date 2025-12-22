@@ -1,0 +1,61 @@
+plugins {
+    id 'com.android.application'
+    id 'kotlin-android'
+}
+
+android {
+    namespace 'com.romeo.jarvis'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.romeo.jarvis"
+        minSdk 26  // Android 8.0+ (Background services ke liye best)
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+    buildFeatures {
+        viewBinding true // UI elements ko easily access karne ke liye
+    }
+}
+
+dependencies {
+    // 1. Core Android Libraries
+    implementation 'androidx.core:core-ktx:1.9.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.9.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+
+    // 2. Lottie Animations (Wo Robot/Orb wali high-tech feel ke liye)
+    implementation 'com.airbnb.android:lottie:6.0.0'
+
+    // 3. Networking (Backend se baat karne ke liye)
+    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
+    implementation 'com.squareup.retrofit2:converter-gson:2.9.0' // JSON samajhne ke liye
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.10.0'
+
+    // 4. Coroutines (Background tasks bina phone hang kiye)
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4'
+
+    // 5. Lifecycle (App kill hone par bhi service zinda rakhne ke liye help karega)
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.6.1'
+    implementation 'androidx.lifecycle:lifecycle-service:2.6.1'
+}
+
