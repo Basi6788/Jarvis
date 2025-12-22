@@ -31,7 +31,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         // UI
-        // orb = findViewById(R.id.aiAvatar)
+        orb = findViewById(R.id.aiAvatar)  // Initialize the orb ImageView
         micBtn = findViewById(R.id.btnMic)
         statusText = findViewById(R.id.greetingText)
 
@@ -42,18 +42,7 @@ class MainActivity : AppCompatActivity() {
         startIdleState()
 
         // ================= PERMISSIONS =================
-
-        ActivityCompat.requestPermissions(
-            this,
-            arrayOf(
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.READ_CONTACTS,
-                Manifest.permission.CALL_PHONE,
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ),
-            101
-        )
+        requestPermissions()
 
         // Overlay Permission
         if (!Settings.canDrawOverlays(this)) {
@@ -78,7 +67,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         // ================= MIC BUTTON LOGIC =================
-
         micBtn.setOnTouchListener { _, event ->
             when (event.action) {
 
@@ -96,6 +84,22 @@ class MainActivity : AppCompatActivity() {
                 else -> false
             }
         }
+    }
+
+    // ================= PERMISSIONS =================
+
+    private fun requestPermissions() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.READ_CONTACTS,
+                Manifest.permission.CALL_PHONE,
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ),
+            101
+        )
     }
 
     // ================= STATES =================
@@ -126,6 +130,20 @@ class MainActivity : AppCompatActivity() {
             startForegroundService(intent)
         } else {
             startService(intent)
+        }
+    }
+
+    // ================= PERMISSIONS RESULT HANDLING =================
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == 101) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Permissions granted, proceed with your actions
+            } else {
+                Toast.makeText(this, "Permission denied", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 }
