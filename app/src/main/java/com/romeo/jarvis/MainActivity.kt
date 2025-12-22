@@ -1,6 +1,7 @@
 package com.romeo.jarvis
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -19,7 +20,7 @@ import com.romeo.jarvis.services.JarvisService
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var orb: ImageView
+    private lateinit var orb: ImageView // This should match the XML ID (e.g., aiAvatar)
     private lateinit var micBtn: ImageButton
     private lateinit var statusText: TextView
 
@@ -31,7 +32,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         // UI
-        orb = findViewById(R.id.aiAvatar)  // Initialize the orb ImageView
+        orb = findViewById(R.id.aiAvatar)  // Correctly initialize the orb ImageView
         micBtn = findViewById(R.id.btnMic)
         statusText = findViewById(R.id.greetingText)
 
