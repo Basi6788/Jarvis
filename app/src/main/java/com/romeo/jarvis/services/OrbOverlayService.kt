@@ -86,4 +86,15 @@ fun updateLevel(level: Float) {
     orbCore.scaleY = scale
     orbGlow.alpha = (0.4f + level * 0.6f).coerceIn(0f, 1f)
 }
+override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    intent?.extras?.let {
+        if (it.containsKey("level")) {
+            updateLevel(it.getFloat("level"))
+        }
+        if (it.getString("state") == "idle") startIdle()
+        if (it.getString("state") == "listening") startListening()
+    }
+    return START_STICKY
 }
+
+ }
