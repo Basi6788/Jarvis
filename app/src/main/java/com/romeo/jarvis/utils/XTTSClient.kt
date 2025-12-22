@@ -16,15 +16,26 @@ object XTTSClient {
         }
         """.trimIndent()
 
+        val mediaType = "application/json".toMediaType()
+        val body = json.toRequestBody(mediaType)
+
         val req = Request.Builder()
             .url("http://127.0.0.1:5002/tts") // XTTS local server
-            .post(RequestBody.create(MediaType.parse("application/json"), json))
+            .post(body)
             .build()
 
         client.newCall(req).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
+            override fun onFailure(call: Call, e: IOException) {
+                e.printStackTrace() // Handle the error
+            }
+
             override fun onResponse(call: Call, res: Response) {
-                res.body()?.bytes()?.let { onAudio(it) }
+                if (res.isSuccessful) {
+                    res.body()?.bytes()?.let { onAudio(it) }
+                } else {
+                    // Handle the failure case
+                    println("Error: ${res.code()}")
+                }
             }
         })
     }
