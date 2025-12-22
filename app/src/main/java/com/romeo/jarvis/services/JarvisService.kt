@@ -1,266 +1,165 @@
 package com.romeo.jarvis.services
 
-import android.app.*
-import android.content.Intent
-import android.os.Bundle
-import android.os.IBinder
-import android.speech.*
-import android.speech.tts.TextToSpeech
-import android.util.Log
-import androidx.core.app.NotificationCompat
-import com.romeo.jarvis.R
-import com.romeo.jarvis.utils.ContactResolver
-import com.romeo.jarvis.utils.SystemController
-import java.util.*
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
+import android.os.Handler
+import android.os.Looper
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 
-class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListener {
+class JarvisAccessibilityService : AccessibilityService() {
 
-    private lateinit var speechRecognizer: SpeechRecognizer
-    private lateinit var tts: TextToSpeech
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var isListening = false
-    private var isAwake = false   // wake-word gate
+    override fun onServiceConnected() {
+        // Register this instance so JarvisService can call it
+        JarvisAccessibilityHolder.service = this
 
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    // ================= LIFECYCLE =================
-
-    override fun onCreate() {
-        super.onCreate()
-        tts = TextToSpeech(this, this)
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-        speechRecognizer.setRecognitionListener(this)
+        val info = AccessibilityServiceInfo().apply {
+            eventTypes = AccessibilityEvent.TYPES_ALL_MASK
+            feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+            notificationTimeout = 50
+            flags =
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        }
+        serviceInfo = info
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundNotification()
-        startListening()
-        return START_STICKY
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // We don’t need to react to events right now.
+        // JarvisService actively calls actions.
     }
 
-    private fun startForegroundNotification() {
-        val channelId = "jarvis_channel"
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(
-            NotificationChannel(
-                channelId,
-                "Jarvis",
-                NotificationManager.IMPORTANCE_LOW
-            )
-        )
+    override fun onInterrupt() {}
 
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Jarvis Active")
-            .setContentText("Listening for wake word")
-            .setSmallIcon(R.drawable.app_icon)
+    // ========================= GLOBAL ACTIONS =========================
+
+    fun back() {
+        performGlobalAction(GLOBAL_ACTION_BACK)
+    }
+
+    fun home() {
+        performGlobalAction(GLOBAL_ACTION_HOME)
+    }
+
+    fun recents() {
+        performGlobalAction(GLOBAL_ACTION_RECENTS)
+    }
+
+    /**
+     * Close current app:
+     * Open recents. (User can say "close app" again to tap)
+     * Advanced swipe-to-dismiss can be added device-wise.
+     */
+    fun closeCurrentApp() {
+        recents()
+    }
+
+    // ========================= GESTURES =========================
+
+    /**
+     * Tap anywhere on screen by coordinates
+     * Example voice: "tap center", "tap top right" (map coords in JarvisService)
+     */
+    fun tap(x: Float, y: Float) {
+        val path = Path().apply { moveTo(x, y) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 60))
             .build()
-
-        startForeground(1, notification)
+        dispatchGesture(gesture, null, null)
     }
 
-    // ================= SPEECH =================
-
-    private fun startListening() {
-        if (isListening) return
-
-        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-            )
-            // Roman Urdu + English best capture
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK")
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-        }
-
-        try {
-            speechRecognizer.startListening(i)
-            isListening = true
-        } catch (e: Exception) {
-            isListening = false
-        }
+    /**
+     * Scroll down the current focused window
+     */
+    fun scrollDown() {
+        rootInActiveWindow?.performAction(
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        )
     }
 
-    override fun onResults(results: Bundle?) {
-        isListening = false
+    /**
+     * Scroll up the current focused window
+     */
+    fun scrollUp() {
+        rootInActiveWindow?.performAction(
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        )
+    }
 
-        val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-        if (list.isNullOrEmpty()) {
-            startListening()
-            return
+    // ========================= SCREEN READING =========================
+
+    /**
+     * Read visible screen text (best-effort).
+     * Returns concatenated text of visible nodes.
+     */
+    fun readScreen(): String {
+        val root = rootInActiveWindow ?: return ""
+        return traverse(root).trim()
+    }
+
+    private fun traverse(node: AccessibilityNodeInfo?): String {
+        if (node == null) return ""
+        val sb = StringBuilder()
+
+        node.text?.let {
+            if (it.isNotBlank()) sb.append(it).append(" ")
+        }
+        node.contentDescription?.let {
+            if (it.isNotBlank()) sb.append(it).append(" ")
         }
 
-        val heard = list[0].lowercase(Locale.getDefault())
-        Log.d("Jarvis", "Heard: $heard")
-
-        // ============ WAKE WORD ============
-        if (!isAwake) {
-            if (heard.contains("jarvis")) {
-                isAwake = true
-                speak("Haan boliye")
-            }
-            startListening()
-            return
+        for (i in 0 until node.childCount) {
+            sb.append(traverse(node.getChild(i)))
         }
+        return sb.toString()
+    }
 
-        // ============ CALL (NORMAL / WHATSAPP) ============
-        if (heard.startsWith("call")) {
-            val name = heard
-                .replace("jarvis", "")
-                .replace("call", "")
-                .replace("on whatsapp", "")
-                .replace("whatsapp par", "")
-                .trim()
+    // ========================= NODE CLICK (ADVANCED) =========================
 
-            val number = ContactResolver.resolveNumber(this, name)
-
-            if (number != null) {
-                if (heard.contains("whatsapp")) {
-                    speak("$name ko WhatsApp par call kar raha hoon")
-                    SystemController.callWhatsApp(this, number)
-                } else {
-                    speak("$name ko call kar raha hoon")
-                    SystemController.callNumber(this, number)
+    /**
+     * Click first node containing given text.
+     * Example: "tap OK", "press allow"
+     */
+    fun clickByText(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val nodes = root.findAccessibilityNodeInfosByText(text)
+        if (!nodes.isNullOrEmpty()) {
+            for (n in nodes) {
+                if (n.isClickable) {
+                    n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    return true
                 }
-            } else {
-                speak("$name ka number nahi mila")
+                // bubble up to clickable parent
+                var p = n.parent
+                while (p != null) {
+                    if (p.isClickable) {
+                        p.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        return true
+                    }
+                    p = p.parent
+                }
             }
-            isAwake = false
-            startListening()
-            return
         }
-
-        // ============ MUSIC CONTROLS ============
-        if (heard.contains("music") || heard.contains("gana")) {
-            when {
-                heard.contains("play") || heard.contains("chalao") ->
-                    SystemController.playMusic(this)
-
-                heard.contains("pause") || heard.contains("roko") ->
-                    SystemController.musicControl(
-                        this,
-                        android.view.KeyEvent.KEYCODE_MEDIA_PAUSE
-                    )
-
-                heard.contains("next") || heard.contains("agla") ->
-                    SystemController.musicControl(
-                        this,
-                        android.view.KeyEvent.KEYCODE_MEDIA_NEXT
-                    )
-
-                heard.contains("previous") || heard.contains("pichla") ->
-                    SystemController.musicControl(
-                        this,
-                        android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS
-                    )
-            }
-            speak("Theek hai")
-            isAwake = false
-            startListening()
-            return
-        }
-
-        // ============ ACCESSIBILITY BASIC ============
-        if (heard.contains("back")) {
-            JarvisAccessibilityHolder.service?.back()
-            speak("Wapas ja raha hoon")
-            isAwake = false
-            startListening()
-            return
-        }
-
-        if (heard.contains("home")) {
-            JarvisAccessibilityHolder.service?.home()
-            speak("Home")
-            isAwake = false
-            startListening()
-            return
-        }
-
-        if (heard.contains("scroll down")) {
-            JarvisAccessibilityHolder.service?.scrollDown()
-            speak("Neeche scroll kar raha hoon")
-            isAwake = false
-            startListening()
-            return
-        }
-
-        if (heard.contains("read screen")) {
-            val text = JarvisAccessibilityHolder.service?.readScreen().orEmpty()
-            speak(if (text.isNotBlank()) text else "Screen khali hai")
-            isAwake = false
-            startListening()
-            return
-        }
-
-        // ============ TERMUX ============
-        if (heard.startsWith("run")) {
-            val cmd = heard.replace("run", "").trim()
-            if (cmd.isNotEmpty()) {
-                SystemController.runTermuxCommand(this, cmd)
-                speak("Command chala raha hoon")
-            } else {
-                speak("Command batao")
-            }
-            isAwake = false
-            startListening()
-            return
-        }
-
-        // ============ STOP ============
-        if (heard.contains("band") || heard.contains("stop listening")) {
-            speak("Theek hai, main chup hoon")
-            isAwake = false
-            startListening()
-            return
-        }
-
-        // ============ FALLBACK ============
-        speak("Samajh nahi aaya, dobara bolo")
-        isAwake = false
-        startListening()
+        return false
     }
 
-    // ================= TTS =================
-
-    private fun speak(text: String) {
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_tts")
-    }
-
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            tts.language = Locale("ur", "PK")
-            tts.setPitch(0.7f)       // deeper
-            tts.setSpeechRate(0.85f) // slower
-        }
-    }
-
-    // ================= ERRORS / CLEANUP =================
-
-    override fun onError(error: Int) {
-        isListening = false
-        startListening()
-    }
+    // ========================= CLEANUP =========================
 
     override fun onDestroy() {
-        speechRecognizer.destroy()
-        tts.shutdown()
+        if (JarvisAccessibilityHolder.service === this) {
+            JarvisAccessibilityHolder.service = null
+        }
         super.onDestroy()
     }
-
-    // Boilerplate
-    override fun onReadyForSpeech(params: Bundle?) {}
-    override fun onBeginningOfSpeech() {}
-    override fun onRmsChanged(rmsdB: Float) {}
-    override fun onBufferReceived(buffer: ByteArray?) {}
-    override fun onEndOfSpeech() {}
-    override fun onPartialResults(partialResults: Bundle?) {}
-    override fun onEvent(eventType: Int, params: Bundle?) {}
 }
 
 /**
- * Simple holder to access AccessibilityService instance
- * (Set this from JarvisAccessibilityService.onServiceConnected)
+ * Simple holder so JarvisService can call Accessibility actions.
+ * (Yes, Android makes us do this dance.)
  */
 object JarvisAccessibilityHolder {
     var service: JarvisAccessibilityService? = null
