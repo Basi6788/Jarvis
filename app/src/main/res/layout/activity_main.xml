@@ -2,14 +2,46 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="#050505"
+    android:padding="20dp">
+
+    <TextView
+        android:id="@+id/statusLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="JARVIS • SYSTEM ONLINE"
+        android:textColor="#CCFF00"
+        android:letterSpacing="0.1"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="30dp"/>
+
+    <ImageView
+        android:id="@+id/aiAvatar"
+        android:layout_width="200dp"
+        android:layout_height="200dp"
+        android:src="@drawable/bg_circle_neon"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="120dp"/>
+
+    <TextView
+        android:id="@+id/greetingText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Touch mic to initialize"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:layout_below="@id/aiAvatar"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="40dp"/>
 
     <ImageButton
         android:id="@+id/btnMic"
-        android:layout_width="100dp"
-        android:layout_height="100dp"
-        android:src="@drawable/ic_launcher_background"
-        android:background="#CCFF00"
-        android:layout_centerInParent="true"/>
-        
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:background="@drawable/bg_circle_neon"
+        android:src="@android:drawable/ic_btn_speak_now"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="50dp"/>
+
 </RelativeLayout>
