@@ -6,18 +6,43 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.POST
 
-// JSON format jo bhejna hai
-data class ChatRequest(val message: String)
-// JSON format jo wapis ayega
-data class ChatResponse(val reply: String)
+// ================= REQUEST =================
+
+data class ChatContext(
+    val wake: Boolean = true,
+    val offlineHandled: Boolean = false
+)
+
+data class ChatRequest(
+    val message: String,
+    val lang: String = "ur",
+    val mode: String = "voice",
+    val context: ChatContext = ChatContext()
+)
+
+// ================= RESPONSE =================
+
+data class ChatResponse(
+    val reply: String,
+    val confidence: Double? = null,
+    val type: String? = null, // chat | action | error
+    val short: Boolean? = true
+)
+
+// ================= API =================
 
 interface ApiService {
-    @POST("/api/chat") // Apka endpoint
+
+    @POST("/api/chat")
     fun chatWithAI(@Body request: ChatRequest): Call<ChatResponse>
 }
 
+// ================= RETROFIT =================
+
 object RetrofitClient {
-    private const val BASE_URL = "https://romeo-backend.vercel.app/" // Apka URL
+
+    // ⚠️ Slash zaroori hai
+    private const val BASE_URL = "https://romeo-backend.vercel.app/"
 
     val instance: ApiService by lazy {
         Retrofit.Builder()
