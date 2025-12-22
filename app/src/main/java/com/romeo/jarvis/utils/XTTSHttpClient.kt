@@ -1,6 +1,7 @@
 package com.romeo.jarvis.utils
 
 import okhttp3.*
+import java.io.IOException
 
 object XTTSHttpClient {
     private val client = OkHttpClient()
@@ -16,16 +17,30 @@ object XTTSHttpClient {
           {"text":"$text","language":"$lang","speaker":"venom"}
         """.trimIndent()
 
+        val mediaType = "application/json".toMediaType()
+        val body = json.toRequestBody(mediaType)
+
         val req = Request.Builder()
             .url(url) // e.g. https://romeo-backend.vercel.app/api/tts
-            .post(RequestBody.create("application/json".toMediaType(), json))
+            .post(body)
             .build()
 
         client.newCall(req).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: java.io.IOException) = onFail()
+            override fun onFailure(call: Call, e: IOException) {
+                e.printStackTrace() // Log the error for debugging
+                onFail()
+            }
+
             override fun onResponse(call: Call, res: Response) {
-                if (!res.isSuccessful) { onFail(); return }
-                onBytes(res.body?.bytes() ?: run { onFail(); return })
+                if (!res.isSuccessful) {
+                    println("Error: ${res.code()}")
+                    onFail()
+                    return
+                }
+                // Only proceed if body is not null
+                res.body?.bytes()?.let { 
+                    onBytes(it)
+                } ?: onFail()
             }
         })
     }
