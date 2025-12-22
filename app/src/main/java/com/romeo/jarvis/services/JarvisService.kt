@@ -15,75 +15,66 @@ import java.util.*
 
 class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListener {
 
-    private lateinit var speechRecognizer: SpeechRecognizer
+    private lateinit var recognizer: SpeechRecognizer
     private lateinit var tts: TextToSpeech
 
     private var isListening = false
-    private var isAwake = false   // wake-word gate
+    private var isAwake = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // ================= LIFECYCLE =================
+    // -------------------- LIFECYCLE --------------------
 
     override fun onCreate() {
         super.onCreate()
         tts = TextToSpeech(this, this)
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-        speechRecognizer.setRecognitionListener(this)
+        recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+        recognizer.setRecognitionListener(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundNotification()
+        startForegroundNotif()
         startListening()
+        showOrbIdle()
         return START_STICKY
     }
 
-    private fun startForegroundNotification() {
+    private fun startForegroundNotif() {
         val channelId = "jarvis_channel"
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
-            NotificationChannel(
-                channelId,
-                "Jarvis",
-                NotificationManager.IMPORTANCE_LOW
-            )
+            NotificationChannel(channelId, "Jarvis", NotificationManager.IMPORTANCE_LOW)
         )
 
-        val notification = NotificationCompat.Builder(this, channelId)
+        val n = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(R.drawable.app_icon)
             .setContentTitle("Jarvis Active")
             .setContentText("Listening for wake word")
-            .setSmallIcon(R.drawable.app_icon)
             .build()
 
-        startForeground(1, notification)
+        startForeground(1, n)
     }
 
-    // ================= SPEECH =================
+    // -------------------- LISTENING --------------------
 
     private fun startListening() {
         if (isListening) return
-
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-            )
-            // Roman Urdu + English best capture
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            // Roman Urdu + English works best like this
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
         }
-
         try {
-            speechRecognizer.startListening(i)
+            recognizer.startListening(i)
             isListening = true
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             isListening = false
         }
     }
 
     override fun onResults(results: Bundle?) {
         isListening = false
-
         val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         if (list.isNullOrEmpty()) {
             startListening()
@@ -93,17 +84,18 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
         val heard = list[0].lowercase(Locale.getDefault())
         Log.d("Jarvis", "Heard: $heard")
 
-        // ============ WAKE WORD ============
+        // ---------- WAKE WORD ----------
         if (!isAwake) {
             if (heard.contains("jarvis")) {
                 isAwake = true
                 speak("Haan boliye")
+                showOrbListening()
             }
             startListening()
             return
         }
 
-        // ============ CALL (NORMAL / WHATSAPP) ============
+        // ---------- CALL (NORMAL / WHATSAPP) ----------
         if (heard.startsWith("call")) {
             val name = heard
                 .replace("jarvis", "")
@@ -113,7 +105,6 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
                 .trim()
 
             val number = ContactResolver.resolveNumber(this, name)
-
             if (number != null) {
                 if (heard.contains("whatsapp")) {
                     speak("$name ko WhatsApp par call kar raha hoon")
@@ -125,75 +116,52 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
             } else {
                 speak("$name ka number nahi mila")
             }
-            isAwake = false
-            startListening()
+            resetAfterAction()
             return
         }
 
-        // ============ MUSIC CONTROLS ============
+        // ---------- MUSIC ----------
         if (heard.contains("music") || heard.contains("gana")) {
             when {
                 heard.contains("play") || heard.contains("chalao") ->
                     SystemController.playMusic(this)
-
                 heard.contains("pause") || heard.contains("roko") ->
-                    SystemController.musicControl(
-                        this,
-                        android.view.KeyEvent.KEYCODE_MEDIA_PAUSE
-                    )
-
+                    SystemController.musicControl(this, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE)
                 heard.contains("next") || heard.contains("agla") ->
-                    SystemController.musicControl(
-                        this,
-                        android.view.KeyEvent.KEYCODE_MEDIA_NEXT
-                    )
-
+                    SystemController.musicControl(this, android.view.KeyEvent.KEYCODE_MEDIA_NEXT)
                 heard.contains("previous") || heard.contains("pichla") ->
-                    SystemController.musicControl(
-                        this,
-                        android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS
-                    )
+                    SystemController.musicControl(this, android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS)
             }
             speak("Theek hai")
-            isAwake = false
-            startListening()
+            resetAfterAction()
             return
         }
 
-        // ============ ACCESSIBILITY BASIC ============
-        if (heard.contains("back")) {
-            JarvisAccessibilityHolder.service?.back()
-            speak("Wapas ja raha hoon")
-            isAwake = false
-            startListening()
-            return
+        // ---------- ACCESSIBILITY ----------
+        when {
+            heard.contains("back") -> {
+                JarvisAccessibilityHolder.service?.back()
+                speak("Wapas")
+                resetAfterAction(); return
+            }
+            heard.contains("home") -> {
+                JarvisAccessibilityHolder.service?.home()
+                speak("Home")
+                resetAfterAction(); return
+            }
+            heard.contains("scroll down") -> {
+                JarvisAccessibilityHolder.service?.scrollDown()
+                speak("Neeche")
+                resetAfterAction(); return
+            }
+            heard.contains("read screen") -> {
+                val text = JarvisAccessibilityHolder.service?.readScreen().orEmpty()
+                speak(if (text.isNotBlank()) text else "Screen khali hai")
+                resetAfterAction(); return
+            }
         }
 
-        if (heard.contains("home")) {
-            JarvisAccessibilityHolder.service?.home()
-            speak("Home")
-            isAwake = false
-            startListening()
-            return
-        }
-
-        if (heard.contains("scroll down")) {
-            JarvisAccessibilityHolder.service?.scrollDown()
-            speak("Neeche scroll kar raha hoon")
-            isAwake = false
-            startListening()
-            return
-        }
-
-        if (heard.contains("read screen")) {
-            val text = JarvisAccessibilityHolder.service?.readScreen().orEmpty()
-            speak(if (text.isNotBlank()) text else "Screen khali hai")
-            isAwake = false
-            startListening()
-            return
-        }
-
-        // ============ TERMUX ============
+        // ---------- TERMUX ----------
         if (heard.startsWith("run")) {
             val cmd = heard.replace("run", "").trim()
             if (cmd.isNotEmpty()) {
@@ -202,26 +170,29 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
             } else {
                 speak("Command batao")
             }
-            isAwake = false
-            startListening()
+            resetAfterAction()
             return
         }
 
-        // ============ STOP ============
+        // ---------- STOP ----------
         if (heard.contains("band") || heard.contains("stop listening")) {
-            speak("Theek hai, main chup hoon")
-            isAwake = false
-            startListening()
+            speak("Theek hai")
+            resetAfterAction()
             return
         }
 
-        // ============ FALLBACK ============
+        // ---------- FALLBACK ----------
         speak("Samajh nahi aaya, dobara bolo")
+        resetAfterAction()
+    }
+
+    private fun resetAfterAction() {
         isAwake = false
+        showOrbIdle()
         startListening()
     }
 
-    // ================= TTS =================
+    // -------------------- TTS --------------------
 
     private fun speak(text: String) {
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_tts")
@@ -235,7 +206,21 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
         }
     }
 
-    // ================= ERRORS / CLEANUP =================
+    // -------------------- ORB HOOKS --------------------
+
+    private fun showOrbIdle() {
+        startService(Intent(this, OrbOverlayService::class.java).apply {
+            putExtra("state", "idle")
+        })
+    }
+
+    private fun showOrbListening() {
+        startService(Intent(this, OrbOverlayService::class.java).apply {
+            putExtra("state", "listening")
+        })
+    }
+
+    // -------------------- ERRORS / CLEANUP --------------------
 
     override fun onError(error: Int) {
         isListening = false
@@ -243,7 +228,7 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
     }
 
     override fun onDestroy() {
-        speechRecognizer.destroy()
+        recognizer.destroy()
         tts.shutdown()
         super.onDestroy()
     }
@@ -256,12 +241,4 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
     override fun onEndOfSpeech() {}
     override fun onPartialResults(partialResults: Bundle?) {}
     override fun onEvent(eventType: Int, params: Bundle?) {}
-}
-
-/**
- * Simple holder to access AccessibilityService instance
- * (Set this from JarvisAccessibilityService.onServiceConnected)
- */
-object JarvisAccessibilityHolder {
-    var service: JarvisAccessibilityService? = null
 }
