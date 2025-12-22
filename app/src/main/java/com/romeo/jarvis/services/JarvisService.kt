@@ -9,8 +9,7 @@ import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.romeo.jarvis.R
-import com.romeo.jarvis.utils.ContactResolver
-import com.romeo.jarvis.utils.SystemController
+import com.romeo.jarvis.utils.*
 import java.util.*
 
 class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListener {
@@ -23,7 +22,7 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // -------------------- LIFECYCLE --------------------
+    // ================= LIFECYCLE =================
 
     override fun onCreate() {
         super.onCreate()
@@ -55,13 +54,12 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
         startForeground(1, n)
     }
 
-    // -------------------- LISTENING --------------------
+    // ================= LISTENING =================
 
     private fun startListening() {
         if (isListening) return
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            // Roman Urdu + English works best like this
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
         }
@@ -95,7 +93,7 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
             return
         }
 
-        // ---------- CALL (NORMAL / WHATSAPP) ----------
+        // ---------- CALL ----------
         if (heard.startsWith("call")) {
             val name = heard
                 .replace("jarvis", "")
@@ -192,35 +190,84 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
         startListening()
     }
 
-    // -------------------- TTS --------------------
+    // ================= XTTS + ORB SYNC =================
 
     private fun speak(text: String) {
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_tts")
+        showOrbListening()
+
+        XTTSHttpClient.fetchWav(
+            url = "https://romeo-backend.vercel.app/api/tts",
+            text = text,
+            lang = "ur",
+            onBytes = { wav ->
+                val player = XTTSPlayer(
+                    onLevel = { level ->
+                        startService(
+                            Intent(this, OrbOverlayService::class.java)
+                                .putExtra("level", level)
+                        )
+                    },
+                    onDone = {
+                        showOrbIdle()
+                    }
+                )
+                player.playWavBytes(wav)
+            },
+            onFail = {
+                offlineTTS(text)
+            }
+        )
+    }
+
+    // ================= OFFLINE FALLBACK =================
+
+    private fun offlineTTS(text: String) {
+        try {
+            SystemController.runTermuxCommand(
+                this,
+                "curl -s http://127.0.0.1:5002/tts -d '{\"text\":\"$text\"}' > /sdcard/jarvis.wav"
+            )
+            Thread.sleep(700)
+            val f = java.io.File("/sdcard/jarvis.wav")
+            if (f.exists()) {
+                val bytes = f.readBytes()
+                XTTSPlayer(
+                    onLevel = { level ->
+                        startService(
+                            Intent(this, OrbOverlayService::class.java)
+                                .putExtra("level", level)
+                        )
+                    },
+                    onDone = { showOrbIdle() }
+                ).playWavBytes(bytes)
+                return
+            }
+        } catch (_: Exception) {}
+
+        // last resort
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "fallback")
+        showOrbIdle()
     }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale("ur", "PK")
-            tts.setPitch(0.7f)       // deeper
-            tts.setSpeechRate(0.85f) // slower
+            tts.setPitch(0.7f)
+            tts.setSpeechRate(0.85f)
         }
     }
 
-    // -------------------- ORB HOOKS --------------------
+    // ================= ORB =================
 
     private fun showOrbIdle() {
-        startService(Intent(this, OrbOverlayService::class.java).apply {
-            putExtra("state", "idle")
-        })
+        startService(Intent(this, OrbOverlayService::class.java).putExtra("state", "idle"))
     }
 
     private fun showOrbListening() {
-        startService(Intent(this, OrbOverlayService::class.java).apply {
-            putExtra("state", "listening")
-        })
+        startService(Intent(this, OrbOverlayService::class.java).putExtra("state", "listening"))
     }
 
-    // -------------------- ERRORS / CLEANUP --------------------
+    // ================= ERRORS / CLEANUP =================
 
     override fun onError(error: Int) {
         isListening = false
