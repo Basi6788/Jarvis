@@ -10,6 +10,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.romeo.jarvis.R
 import com.romeo.jarvis.utils.*
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
 import java.util.*
 
 class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListener {
@@ -27,8 +30,17 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
     override fun onCreate() {
         super.onCreate()
         tts = TextToSpeech(this, this)
-        recognizer = SpeechRecognizer.createSpeechRecognizer(this)
-        recognizer.setRecognitionListener(this)
+        // Speech Recognizer setup
+        setupRecognizer()
+    }
+
+    private fun setupRecognizer() {
+        if (SpeechRecognizer.isRecognitionAvailable(this)) {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            recognizer.setRecognitionListener(this)
+        } else {
+            Log.e("Jarvis", "Speech Recognition not available")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -41,14 +53,18 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
     private fun startForegroundNotif() {
         val channelId = "jarvis_channel"
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(
-            NotificationChannel(channelId, "Jarvis", NotificationManager.IMPORTANCE_LOW)
-        )
+        
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(channelId, "Jarvis Service", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
 
         val n = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.drawable.app_icon)
+            .setSmallIcon(R.drawable.app_icon) // Make sure ye icon drawables me ho
             .setContentTitle("Jarvis Active")
-            .setContentText("Listening for wake word")
+            .setContentText("Listening for wake word...")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
         startForeground(1, n)
@@ -58,16 +74,25 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
 
     private fun startListening() {
         if (isListening) return
+        
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK") // Urdu Pakistan
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
+        
         try {
             recognizer.startListening(i)
             isListening = true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             isListening = false
+            Log.e("Jarvis", "Mic Error: ${e.message}")
+            // Agar crash ho to thora ruk kar restart karo
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                setupRecognizer()
+                startListening()
+            }, 2000)
         }
     }
 
@@ -82,119 +107,106 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
         val heard = list[0].lowercase(Locale.getDefault())
         Log.d("Jarvis", "Heard: $heard")
 
-        // ---------- WAKE WORD ----------
+        // ---------- 1. WAKE WORD (Jagne ka process) ----------
         if (!isAwake) {
-            if (heard.contains("jarvis")) {
+            if (heard.contains("jarvis") || heard.contains("hello")) {
                 isAwake = true
-                speak("Haan boliye")
+                speak("Jee boss, hukum karein")
                 showOrbListening()
             }
+            startListening() // Wapis sunne lag jao
+            return
+        }
+
+        // ---------- 2. HARDCODED COMMANDS (Local Actions) ----------
+        
+        // Call Logic
+        if (heard.startsWith("call")) {
+            val name = heard.replace("jarvis", "").replace("call", "").trim()
+            val number = ContactResolver.resolveNumber(this, name)
+            
+            if (number != null) {
+                speak("$name ko call mila raha hun")
+                SystemController.callNumber(this, number)
+            } else {
+                speak("Contact list mein $name nahi mila")
+            }
+            resetAfterAction()
+            return
+        }
+
+        // Music Logic
+        if (heard.contains("music") || heard.contains("gana")) {
+            SystemController.playMusic(this)
+            speak("Music chala diya")
+            resetAfterAction()
+            return
+        }
+
+        // Termux Logic (Hacking)
+        if (heard.startsWith("run")) {
+            val cmd = heard.replace("run", "").trim()
+            SystemController.runTermuxCommand(this, cmd)
+            speak("Command execute ho gayi")
+            resetAfterAction()
+            return
+        }
+
+        // Stop Logic
+        if (heard.contains("band") || heard.contains("chup") || heard.contains("stop")) {
+            speak("Allah Hafiz")
+            isAwake = false
+            showOrbIdle()
             startListening()
             return
         }
 
-        // ---------- CALL ----------
-        if (heard.startsWith("call")) {
-            val name = heard
-                .replace("jarvis", "")
-                .replace("call", "")
-                .replace("on whatsapp", "")
-                .replace("whatsapp par", "")
-                .trim()
+        // ---------- 3. AI BRAIN (Agar kuch samajh na aye to Server se pucho) ----------
+        
+        // Pehle hum keh rahe thay "Samajh nahi aya", ab hum server bhejenge
+        askJarvisBrain(heard)
+    }
 
-            val number = ContactResolver.resolveNumber(this, name)
-            if (number != null) {
-                if (heard.contains("whatsapp")) {
-                    speak("$name ko WhatsApp par call kar raha hoon")
-                    SystemController.callWhatsApp(this, number)
+    // ================= AI CONNECTION =================
+
+    private fun askJarvisBrain(question: String) {
+        showOrbListening() // User ko dikhao ke process ho raha hai
+        
+        val request = ChatRequest(message = question, mode = "voice")
+        
+        RetrofitClient.instance.chatWithAI(request).enqueue(object : Callback<ChatResponse> {
+            override fun onResponse(call: Call<ChatResponse>, response: Response<ChatResponse>) {
+                if (response.isSuccessful && response.body() != null) {
+                    val reply = response.body()!!.reply
+                    speak(reply) // AI ka jawab bolo
                 } else {
-                    speak("$name ko call kar raha hoon")
-                    SystemController.callNumber(this, number)
+                    speak("Server se jawab nahi aya, error code ${response.code()}")
                 }
-            } else {
-                speak("$name ka number nahi mila")
+                resetAfterAction()
             }
-            resetAfterAction()
-            return
-        }
 
-        // ---------- MUSIC ----------
-        if (heard.contains("music") || heard.contains("gana")) {
-            when {
-                heard.contains("play") || heard.contains("chalao") ->
-                    SystemController.playMusic(this)
-                heard.contains("pause") || heard.contains("roko") ->
-                    SystemController.musicControl(this, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE)
-                heard.contains("next") || heard.contains("agla") ->
-                    SystemController.musicControl(this, android.view.KeyEvent.KEYCODE_MEDIA_NEXT)
-                heard.contains("previous") || heard.contains("pichla") ->
-                    SystemController.musicControl(this, android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+            override fun onFailure(call: Call<ChatResponse>, t: Throwable) {
+                speak("Internet disconnect lag raha hai boss")
+                resetAfterAction()
             }
-            speak("Theek hai")
-            resetAfterAction()
-            return
-        }
-
-        // ---------- ACCESSIBILITY ----------
-        when {
-            heard.contains("back") -> {
-                JarvisAccessibilityHolder.service?.back()
-                speak("Wapas")
-                resetAfterAction(); return
-            }
-            heard.contains("home") -> {
-                JarvisAccessibilityHolder.service?.home()
-                speak("Home")
-                resetAfterAction(); return
-            }
-            heard.contains("scroll down") -> {
-                JarvisAccessibilityHolder.service?.scrollDown()
-                speak("Neeche")
-                resetAfterAction(); return
-            }
-            heard.contains("read screen") -> {
-                val text = JarvisAccessibilityHolder.service?.readScreen().orEmpty()
-                speak(if (text.isNotBlank()) text else "Screen khali hai")
-                resetAfterAction(); return
-            }
-        }
-
-        // ---------- TERMUX ----------
-        if (heard.startsWith("run")) {
-            val cmd = heard.replace("run", "").trim()
-            if (cmd.isNotEmpty()) {
-                SystemController.runTermuxCommand(this, cmd)
-                speak("Command chala raha hoon")
-            } else {
-                speak("Command batao")
-            }
-            resetAfterAction()
-            return
-        }
-
-        // ---------- STOP ----------
-        if (heard.contains("band") || heard.contains("stop listening")) {
-            speak("Theek hai")
-            resetAfterAction()
-            return
-        }
-
-        // ---------- FALLBACK ----------
-        speak("Samajh nahi aaya, dobara bolo")
-        resetAfterAction()
+        })
     }
 
     private fun resetAfterAction() {
         isAwake = false
         showOrbIdle()
-        startListening()
+        // Thora sa delay taake khud ki awaz na sun le
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            startListening()
+        }, 1500)
     }
 
-    // ================= XTTS + ORB SYNC =================
+    // ================= TTS & AUDIO (Existing Logic) =================
 
     private fun speak(text: String) {
         showOrbListening()
 
+        // Aapka existing XTTS logic
         XTTSHttpClient.fetchWav(
             url = "https://romeo-backend.vercel.app/api/tts",
             text = text,
@@ -202,62 +214,26 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
             onBytes = { wav ->
                 val player = XTTSPlayer(
                     onLevel = { level ->
-                        startService(
-                            Intent(this, OrbOverlayService::class.java)
-                                .putExtra("level", level)
-                        )
+                        startService(Intent(this, OrbOverlayService::class.java).putExtra("level", level))
                     },
-                    onDone = {
-                        showOrbIdle()
-                    }
+                    onDone = { showOrbIdle() }
                 )
                 player.playWavBytes(wav)
             },
             onFail = {
-                offlineTTS(text)
+                // Agar internet na ho to local TTS
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "fallback")
             }
         )
     }
 
-    // ================= OFFLINE FALLBACK =================
-
-    private fun offlineTTS(text: String) {
-        try {
-            SystemController.runTermuxCommand(
-                this,
-                "curl -s http://127.0.0.1:5002/tts -d '{\"text\":\"$text\"}' > /sdcard/jarvis.wav"
-            )
-            Thread.sleep(700)
-            val f = java.io.File("/sdcard/jarvis.wav")
-            if (f.exists()) {
-                val bytes = f.readBytes()
-                XTTSPlayer(
-                    onLevel = { level ->
-                        startService(
-                            Intent(this, OrbOverlayService::class.java)
-                                .putExtra("level", level)
-                        )
-                    },
-                    onDone = { showOrbIdle() }
-                ).playWavBytes(bytes)
-                return
-            }
-        } catch (_: Exception) {}
-
-        // last resort
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "fallback")
-        showOrbIdle()
-    }
+    // ================= ORB & INIT =================
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale("ur", "PK")
-            tts.setPitch(0.7f)
-            tts.setSpeechRate(0.85f)
         }
     }
-
-    // ================= ORB =================
 
     private fun showOrbIdle() {
         startService(Intent(this, OrbOverlayService::class.java).putExtra("state", "idle"))
@@ -267,20 +243,21 @@ class JarvisService : Service(), RecognitionListener, TextToSpeech.OnInitListene
         startService(Intent(this, OrbOverlayService::class.java).putExtra("state", "listening"))
     }
 
-    // ================= ERRORS / CLEANUP =================
-
     override fun onError(error: Int) {
+        // Error aye to dobara sunna shuru karo (Loop)
         isListening = false
         startListening()
     }
 
     override fun onDestroy() {
-        recognizer.destroy()
-        tts.shutdown()
+        try {
+            recognizer.destroy()
+            tts.shutdown()
+        } catch (e: Exception) {}
         super.onDestroy()
     }
 
-    // Boilerplate
+    // Unused overrides
     override fun onReadyForSpeech(params: Bundle?) {}
     override fun onBeginningOfSpeech() {}
     override fun onRmsChanged(rmsdB: Float) {}
