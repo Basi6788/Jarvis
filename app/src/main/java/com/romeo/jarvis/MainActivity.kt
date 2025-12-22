@@ -1,7 +1,6 @@
 package com.romeo.jarvis
 
 import android.Manifest
-import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -11,7 +10,6 @@ import android.view.MotionEvent
 import android.view.animation.Animation
 import android.view.animation.AnimationUtils
 import android.widget.ImageButton
-import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -20,7 +18,6 @@ import com.romeo.jarvis.services.JarvisService
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var orb: ImageView // This should match the XML ID (e.g., aiAvatar)
     private lateinit var micBtn: ImageButton
     private lateinit var statusText: TextView
 
@@ -31,8 +28,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // UI
-        orb = findViewById(R.id.aiAvatar)  // Correctly initialize the orb ImageView
+        // UI - Removed aiAvatar reference
         micBtn = findViewById(R.id.btnMic)
         statusText = findViewById(R.id.greetingText)
 
@@ -106,14 +102,10 @@ class MainActivity : AppCompatActivity() {
     // ================= STATES =================
 
     private fun startIdleState() {
-        orb.clearAnimation()
-        orb.startAnimation(idleAnim)
         statusText.text = "Touch mic to talk with Jarvis"
     }
 
     private fun startListeningState() {
-        orb.clearAnimation()
-        orb.startAnimation(listenAnim)
         statusText.text = "Listening..."
     }
 
