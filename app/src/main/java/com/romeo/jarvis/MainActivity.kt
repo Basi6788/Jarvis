@@ -1,6 +1,7 @@
 package com.romeo.jarvis
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -10,6 +11,7 @@ import android.view.MotionEvent
 import android.view.animation.Animation
 import android.view.animation.AnimationUtils
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -18,6 +20,9 @@ import com.romeo.jarvis.services.JarvisService
 
 class MainActivity : AppCompatActivity() {
 
+    // Declare the views (orbGlow, orbCore, micBtn, and statusText)
+    private lateinit var orbGlow: ImageView
+    private lateinit var orbCore: ImageView
     private lateinit var micBtn: ImageButton
     private lateinit var statusText: TextView
 
@@ -28,11 +33,13 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // UI - Removed aiAvatar reference
+        // Initialize views
+        orbGlow = findViewById(R.id.orbGlow)
+        orbCore = findViewById(R.id.orbCore)
         micBtn = findViewById(R.id.btnMic)
         statusText = findViewById(R.id.greetingText)
 
-        // Animations
+        // Load animations
         idleAnim = AnimationUtils.loadAnimation(this, R.anim.orb_idle)
         listenAnim = AnimationUtils.loadAnimation(this, R.anim.orb_listening)
 
@@ -102,10 +109,18 @@ class MainActivity : AppCompatActivity() {
     // ================= STATES =================
 
     private fun startIdleState() {
+        orbGlow.clearAnimation()
+        orbCore.clearAnimation()
+        orbGlow.startAnimation(idleAnim)
+        orbCore.startAnimation(idleAnim)
         statusText.text = "Touch mic to talk with Jarvis"
     }
 
     private fun startListeningState() {
+        orbGlow.clearAnimation()
+        orbCore.clearAnimation()
+        orbGlow.startAnimation(listenAnim)
+        orbCore.startAnimation(listenAnim)
         statusText.text = "Listening..."
     }
 
