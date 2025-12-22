@@ -28,14 +28,15 @@ object XTTSClient {
 
         client.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                e.printStackTrace()
+                e.printStackTrace()  // Log error
             }
 
             override fun onResponse(call: Call, res: Response) {
                 if (res.isSuccessful) {
                     res.body?.bytes()?.let { onAudio(it) }
                 } else {
-                    println("Error: ${res.code()}")
+                    // Use response.code instead of code()
+                    println("Error: ${res.code}")
                 }
             }
         })
