@@ -1,24 +1,29 @@
 package com.romeo.jarvis.services
 
-import android.app.Service
+import android.Manifest
+import android.app.*
+import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.PixelFormat
+import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.*
 import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.telephony.SmsManager
+import android.util.Log
 import android.view.*
-import android.view.animation.AnimationUtils
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.Toast
-import androidx.core.content.ContextCompat
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
 import com.romeo.jarvis.R
 import java.util.*
 
@@ -30,33 +35,38 @@ class OrbOverlayService : Service(), TextToSpeech.OnInitListener {
     private lateinit var params: WindowManager.LayoutParams
     
     private var speechRecognizer: SpeechRecognizer? = null
+    private var speechIntent: Intent? = null
     private var textToSpeech: TextToSpeech? = null
     private var audioManager: AudioManager? = null
-    
-    // Venom Voice Settings
-    private val VENOM_PITCH = 0.4f // Gehri awaz (Male/Monster style)
-    private val VENOM_SPEED = 0.8f // Thora slow aur clear
+
+    // States
+    private var isWakeWordMode = true // True = Listening for "Jarvis", False = Listening for commands
+    private val WAKE_WORD = "jarvis"
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         
-        // 1. Setup Audio & TTS
+        // Foreground Service Notification (Android Requirement)
+        startForeground(1, createNotification())
+
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         textToSpeech = TextToSpeech(this, this)
+        
+        initializeOrb()
         setupSpeechRecognizer()
-
-        // 2. Create Floating Orb (Venom Style)
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        createOrbView()
     }
 
-    private fun createOrbView() {
+    // --- ORB UI SETUP ---
+    private fun initializeOrb() {
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        
+        // Layout Inflate
         orbView = LayoutInflater.from(this).inflate(R.layout.layout_orb_overlay, null)
         orbIcon = orbView.findViewById(R.id.orbIcon)
 
-        // Orb Position: Bottom Center (Navigation ke thora oopar)
+        // Initial Params: HIDDEN (Invisible lekin background me active)
         params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -64,191 +74,285 @@ class OrbOverlayService : Service(), TextToSpeech.OnInitListener {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY 
             else WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, // Apps ke upar chalega
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
 
+        // Position: Bottom Center (Nav bar se thora oopar)
         params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        params.y = 150 // Bottom se thora oopar
-
-        // Touch Listener (Drag & Click)
-        orbIcon.setOnTouchListener(object : View.OnTouchListener {
-            private var initialX = 0
-            private var initialY = 0
-            private var initialTouchX = 0f
-            private var initialTouchY = 0f
-
-            override fun onTouch(v: View, event: MotionEvent): Boolean {
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialX = params.x
-                        initialY = params.y
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
-                        return true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        val diffX = (event.rawX - initialTouchX).toInt()
-                        val diffY = (event.rawY - initialTouchY).toInt()
-                        
-                        // Agar drag nahi kia, to click mana jaye
-                        if (Math.abs(diffX) < 10 && Math.abs(diffY) < 10) {
-                            startListening()
-                        }
-                        return true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        params.x = initialX + (event.rawX - initialTouchX).toInt()
-                        params.y = initialY - (event.rawY - initialTouchY).toInt()
-                        windowManager.updateViewLayout(orbView, params)
-                        return true
-                    }
-                }
-                return false
-            }
-        })
-
+        params.y = 120 // Pixels from bottom
+        
+        // Shuru me Orb Gayab rahay ga
+        orbView.visibility = View.GONE 
         windowManager.addView(orbView, params)
     }
 
-    // ================= VENOM VOICE ENGINE =================
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            val result = textToSpeech?.setLanguage(Locale("ur")) // Urdu try karega
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                textToSpeech?.language = Locale.US // Fallback to English
-            }
-            
-            // Yahan banegi Venom ki awaz
-            textToSpeech?.setPitch(VENOM_PITCH) 
-            textToSpeech?.setSpeechRate(VENOM_SPEED)
-            
-            speak("System Online. I am watching.")
-        }
-    }
-
-    private fun speak(text: String) {
-        // Audio Ducking: Gaana band nahi hoga, sirf slow hoga
-        audioManager?.requestAudioFocus(
-            null, 
-            AudioManager.STREAM_MUSIC, 
-            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-        )
-        
-        textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "venom_id")
-    }
-
-    // ================= LISTENING LOGIC =================
-    private fun startListening() {
-        // Orb animation change karo (Listening Mode)
-        orbIcon.animate().scaleX(1.5f).scaleY(1.5f).setDuration(300).start()
-        orbIcon.alpha = 1.0f
-
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK") // Urdu Recognizer
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        }
-        
+    private fun showOrb() {
         Handler(Looper.getMainLooper()).post {
-            speechRecognizer?.startListening(intent)
+            orbView.visibility = View.VISIBLE
+            // Animation: Pop up
+            orbIcon.scaleX = 0f
+            orbIcon.scaleY = 0f
+            orbIcon.animate().scaleX(1f).scaleY(1f).setDuration(300).start()
         }
     }
 
+    private fun hideOrb() {
+        Handler(Looper.getMainLooper()).post {
+            orbIcon.animate().scaleX(0f).scaleY(0f).setDuration(300).withEndAction {
+                orbView.visibility = View.GONE
+            }.start()
+        }
+    }
+
+    // --- SPEECH RECOGNITION LOOP ---
     private fun setupSpeechRecognizer() {
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+        speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK") // Urdu + English Mix
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        }
+
         speechRecognizer?.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {}
             override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {
-                // Orb pulse karega jab aap bolo ge
-                val scale = 1f + (rmsdB / 15f)
-                orbIcon.scaleX = scale
-                orbIcon.scaleY = scale
+                // Agar Orb visible hai to usay animate karo
+                if (!isWakeWordMode) {
+                    val scale = 1f + (rmsdB / 20f)
+                    orbIcon.scaleX = scale
+                    orbIcon.scaleY = scale
+                }
             }
             override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {
-                orbIcon.animate().scaleX(1f).scaleY(1f).setDuration(300).start()
-            }
+            override fun onEndOfSpeech() {}
+            
             override fun onError(error: Int) {
-                orbIcon.animate().scaleX(1f).scaleY(1f).start()
-                // Agar error aye to dobara suno (Hotword loop trick)
-                // Note: Continuous listening battery khata hai, filhal tap-to-speak best hai
+                // Loop: Agar error aye to dobara sunna shuru karo
+                restartListening()
             }
+
             override fun onResults(results: Bundle?) {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (!matches.isNullOrEmpty()) {
-                    processCommand(matches[0].lowercase())
+                    val text = matches[0].lowercase()
+                    handleVoiceInput(text)
+                } else {
+                    restartListening()
                 }
             }
-            override fun onPartialResults(partialResults: Bundle?) {}
+
+            override fun onPartialResults(partialResults: Bundle?) {
+                // Wake word jaldi pakarne ke liye partial results check karo
+                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) {
+                    val text = matches[0].lowercase()
+                    if (isWakeWordMode && text.contains(WAKE_WORD)) {
+                        speechRecognizer?.stopListening() // Roko taake final result process ho
+                        activateAssistant()
+                    }
+                }
+            }
+
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
+
+        // Start Loop
+        speechRecognizer?.startListening(speechIntent)
     }
 
-    // ================= SMART COMMAND PROCESSOR (URDU + ENGLISH) =================
-    private fun processCommand(cmd: String) {
-        // Urdu & English Mix Logic
-        val appName = cmd.replace("jarvis", "")
-                        .replace("open", "")
-                        .replace("kholo", "")
-                        .replace("chalao", "")
-                        .replace("lagao", "")
-                        .trim()
+    private fun restartListening() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                speechRecognizer?.startListening(speechIntent)
+            } catch (e: Exception) { e.printStackTrace() }
+        }, 500)
+    }
 
-        when {
-            // Apps Opening Logic
-            cmd.contains("open") || cmd.contains("kholo") || cmd.contains("chalao") -> {
-                if (openApp(appName)) {
-                    speak("Opening $appName") // English response (looks cooler)
-                } else {
-                    speak("I cannot find $appName")
-                }
+    // --- LOGIC HANDLING ---
+    
+    private fun handleVoiceInput(text: String) {
+        if (isWakeWordMode) {
+            if (text.contains(WAKE_WORD)) {
+                activateAssistant()
+            } else {
+                restartListening() // Sahi lafz nahi tha, wapis suno
             }
-            
-            // Utilities
-            cmd.contains("wifi on") || cmd.contains("wifi chalao") -> {
-                // Wifi logic here
-                speak("WiFi activated")
-            }
-            
-            // Casual Talk
-            cmd.contains("kaise ho") || cmd.contains("how are you") -> {
-                speak("I am simply code. But I am functioning perfectly.")
-            }
-            
-            // Youtube Specific
-            cmd.contains("youtube") -> {
-                openApp("youtube")
-                speak("Accessing YouTube database")
-            }
-            
-            else -> speak("Command not recognized. Say again.")
+        } else {
+            // Command Mode
+            processCommand(text)
         }
     }
+
+    private fun activateAssistant() {
+        isWakeWordMode = false // Ab command sunni hai
+        showOrb() // Orb zahir karo
+        speak("Ji boss?") // Feedback
+        restartListening() // Ab command sunnay ke liye ready
+    }
+
+    private fun processCommand(cmd: String) {
+        Log.d("Jarvis", "Command: $cmd")
+        
+        // Command execute karne ke baad wapis sleep mode me jana hai
+        val shouldSleep = true 
+
+        when {
+            // 1. APPS
+            cmd.contains("open") || cmd.contains("kholo") || cmd.contains("chalao") -> {
+                val appName = cmd.replace("open", "").replace("kholo", "").replace("chalao", "").replace("jarvis", "").trim()
+                if (openApp(appName)) speak("Opening $appName") else speak("$appName nahi mili")
+            }
+            
+            // 2. FLASHLIGHT (Torch)
+            cmd.contains("torch") || cmd.contains("flashlight") -> {
+                toggleFlashlight(cmd.contains("on") || cmd.contains("jalao"))
+            }
+
+            // 3. WIFI
+            cmd.contains("wifi") -> {
+                toggleWifi(cmd.contains("on") || cmd.contains("active"))
+            }
+
+            // 4. BLUETOOTH
+            cmd.contains("bluetooth") -> {
+                toggleBluetooth(cmd.contains("on") || cmd.contains("connect"))
+            }
+
+            // 5. CALLS (Urdu/Eng)
+            cmd.contains("call") || cmd.contains("milao") -> {
+                val name = cmd.replace("call", "").replace("milao", "").replace("ko", "").trim()
+                makeCall(name)
+            }
+
+            // 6. SMS
+            cmd.contains("message") || cmd.contains("msg") -> {
+                // Simple parser logic for now
+                speak("Message feature activate kar raha hoon")
+                // Yahan SMS logic ayegi (complex parsing required)
+            }
+
+            // 7. TIME
+            cmd.contains("time") || cmd.contains("waqt") -> {
+                val time = java.text.SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
+                speak("Abhi $time bajay hain")
+            }
+            
+            // 8. CLOSE / CANCEL
+            cmd.contains("band karo") || cmd.contains("cancel") || cmd.contains("nothing") -> {
+                speak("Theek hai")
+            }
+
+            else -> {
+                speak("Samajh nahi aya, dobara bolain")
+                restartListening() // Sleep mode me mat jao, dobara suno
+                return 
+            }
+        }
+
+        if (shouldSleep) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                isWakeWordMode = true
+                hideOrb()
+                restartListening()
+            }, 3000) // 3 second baad gayab
+        }
+    }
+
+    // --- UTILITIES (Actions) ---
 
     private fun openApp(appName: String): Boolean {
         val pm = packageManager
         val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-        
-        for (packageInfo in packages) {
-            val label = pm.getApplicationLabel(packageInfo).toString().lowercase()
-            if (label.contains(appName) || packageInfo.packageName.contains(appName)) {
-                val launchIntent = pm.getLaunchIntentForPackage(packageInfo.packageName)
-                if (launchIntent != null) {
-                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(launchIntent)
+        packages.forEach {
+            val label = pm.getApplicationLabel(it).toString().lowercase()
+            if (label.contains(appName) || it.packageName.contains(appName)) {
+                try {
+                    val intent = pm.getLaunchIntentForPackage(it.packageName)
+                    intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
                     return true
-                }
+                } catch (e: Exception) { return false }
             }
         }
         return false
     }
 
+    private fun toggleFlashlight(state: Boolean) {
+        try {
+            val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val cameraId = cameraManager.cameraIdList[0]
+            cameraManager.setTorchMode(cameraId, state)
+            speak(if (state) "Torch on kar di" else "Torch band")
+        } catch (e: Exception) { speak("Torch access nahi ho rahi") }
+    }
+
+    private fun toggleWifi(state: Boolean) {
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            // Android 10+ me ye direct kaam nahi karta, Panel kholna parta hai
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                wifiManager.isWifiEnabled = state
+                speak("Wifi ${if(state) "on" else "off"} kar diya")
+            } else {
+                startActivity(Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                speak("Internet settings khol di hain")
+            }
+        } catch (e: Exception) { speak("Error aya hai") }
+    }
+
+    private fun toggleBluetooth(state: Boolean) {
+        // Permission check zaroori hai
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+            val adapter = BluetoothAdapter.getDefaultAdapter()
+            if (state) adapter?.enable() else adapter?.disable()
+            speak("Bluetooth ${if(state) "on" else "off"} ho gaya")
+        } else {
+            speak("Bluetooth permission nahi hai")
+        }
+    }
+
+    private fun makeCall(name: String) {
+        // Contacts search logic (simplified)
+        // Real project me ContentResolver use kar ke number nikalna parega
+        speak("$name ko call mila raha hoon")
+        // Demo purpose ke liye Dial action:
+        val intent = Intent(Intent.ACTION_DIAL)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+    }
+
+    // --- TTS & INIT ---
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            textToSpeech?.language = Locale.US
+            textToSpeech?.setPitch(0.7f) // Thora bhari awaz
+        }
+    }
+
+    private fun speak(text: String) {
+        audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
+        textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_speak")
+    }
+    
+    private fun createNotification(): Notification {
+        val channelId = "JarvisService"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(channelId, "Jarvis Background", NotificationManager.IMPORTANCE_LOW)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        }
+        return NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Jarvis Active")
+            .setContentText("Listening for 'Jarvis'...")
+            .setSmallIcon(R.drawable.ic_mic) // Ensure you have this icon
+            .build()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        if (::windowManager.isInitialized) windowManager.removeView(orbView)
         speechRecognizer?.destroy()
         textToSpeech?.shutdown()
+        if (::windowManager.isInitialized) windowManager.removeView(orbView)
     }
 }
