@@ -20,15 +20,14 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.View
 import android.view.animation.*
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.romeo.jarvis.fragments.ChatFragment
+import com.romeo.jarvis.services.OrbOverlayService // Import fix kiya hai
 import com.romeo.jarvis.utils.ChatRequest
 import com.romeo.jarvis.utils.ChatResponse
 import com.romeo.jarvis.utils.RetrofitClient
@@ -365,6 +364,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 orbCore.alpha = 0.5f + (rmsdB / 10).coerceIn(0f, 0.5f)
             }
 
+            // FIXED: Added missing method here
+            override fun onBufferReceived(buffer: ByteArray?) {
+                // Buffer received logic (optional)
+            }
+
             override fun onEndOfSpeech() {
                 isListening = false
                 stopListeningAnimation()
@@ -514,7 +518,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         } else {
             animateTypewriterText("Contact permission needed")
-            requestPermissions()
+            requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 102) // Fixed param
         }
         isProcessing = false
     }
@@ -562,7 +566,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         } else {
             animateTypewriterText("Call permission needed")
-            requestPermissions()
+            requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), 103) // Fixed param
         }
         isProcessing = false
     }
@@ -724,7 +728,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 supportFragmentManager.findFragmentByTag("CHAT_TAG")?.let {
                     supportFragmentManager.beginTransaction().remove(it).commit()
                 }
-                findViewById<View>(R.id.homeLayout)?.visibility = View.VISIBLE
+                // FIXED: homeLayout ID doesn't exist, using orbContainer and txtPrompt
+                orbContainer.visibility = View.VISIBLE
+                txtPrompt.visibility = View.VISIBLE
+                
                 animateTypewriterText("How may I assist you, sir?")
             }
             "Chat" -> {
@@ -732,11 +739,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     alpha = 1f
                     setColorFilter(Color.parseColor("#FFD700"))
                 }
-                findViewById<View>(R.id.homeLayout)?.visibility = View.GONE
+                // FIXED: homeLayout ID doesn't exist, hiding orbContainer
+                orbContainer.visibility = View.GONE
+                txtPrompt.visibility = View.GONE
+
                 if (supportFragmentManager.findFragmentByTag("CHAT_TAG") == null) {
                     supportFragmentManager.beginTransaction()
                         .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out)
-                        .add(R.id.fragmentContainer, ChatFragment(), "CHAT_TAG")
+                        // FIXED: fragmentContainer ID doesn't exist, using mainContent
+                        .add(R.id.mainContent, ChatFragment(), "CHAT_TAG")
                         .commit()
                 }
             }
