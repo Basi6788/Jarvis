@@ -9,10 +9,10 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     
     <uses-permission android:name="android.permission.CALL_PHONE" />
@@ -24,6 +24,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" />
+    <uses-feature android:name="android.hardware.camera.flash" />
+    
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
                     android:maxSdkVersion="29" />
@@ -32,7 +40,8 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
-        </intent> <intent>
+        </intent> 
+        <intent>
             <action android:name="android.intent.action.ASSIST" />
         </intent>
         <intent>
@@ -40,6 +49,9 @@
         </intent>
         <intent>
             <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
         </intent>
     </queries>
 
