@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
-import android.media.MediaPlayer
 import android.net.Uri
 import android.os.*
 import android.provider.Settings
@@ -16,7 +15,6 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import android.view.KeyEvent
 import android.view.View
 import android.view.animation.*
 import android.widget.*
@@ -62,7 +60,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var isListening = false
     private var isSpeaking = false
     private var isFlashlightOn = false
-    private val wakeWord = "jarvis"
+    private val wakeWord = "jarvis" // English
+    private val wakeWordUrdu = "جاروس" // Urdu Script
 
     // Permissions List
     private val OVERLAY_REQUEST_CODE = 102
@@ -75,29 +74,32 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         Manifest.permission.CHANGE_WIFI_STATE,
         Manifest.permission.BLUETOOTH,
         Manifest.permission.BLUETOOTH_CONNECT,
-        Manifest.permission.CAMERA // Added for Flashlight
+        Manifest.permission.CAMERA
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         
-        // Initialize Systems
         initializeViews()
-        setupTextToSpeech() // Venom Voice Setup
-        resetSpeechRecognizer() // Fixes Error 12
+        setupTextToSpeech() // Venom Setup
         setupAnimations()
         setupNavigation()
         
-        // Permissions Check
+        // Mute Beep Sound fix
+        muteSystemBeep() 
+
         if (checkAllPermissions()) {
             startOverlayService()
         } else {
             requestPermissions()
         }
         
-        updateStatus("SYSTEM • ONLINE", "#00FF00")
-        animateTypewriterText("Jarvis Protocol v2.0 Initialized...")
+        // Start Listening Automatically (Fixing Error 12 loop inside)
+        resetSpeechRecognizer()
+        
+        updateStatus("JARVIS • ONLINE", "#00FF00")
+        animateTypewriterText("System Online. Waiting for 'Jarvis'...")
     }
 
     private fun initializeViews() {
@@ -112,16 +114,27 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         
-        btnMic.setOnClickListener { handleMicInteraction() }
+        btnMic.setOnClickListener { 
+            if(isListening) stopListening() else startListening()
+        }
     }
 
-    // ================= VENOM VOICE SETTINGS =================
+    // ================= SOUND & BEEP CONTROL =================
+    
+    private fun muteSystemBeep() {
+        // "Karwaon" awaz kam karne ke liye
+        try {
+            audioManager?.setStreamVolume(AudioManager.STREAM_NOTIFICATION, 0, 0)
+            audioManager?.setStreamVolume(AudioManager.STREAM_ALARM, 0, 0)
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    // ================= VENOM VOICE =================
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             textToSpeech?.language = Locale.US
-            // VENOM CONFIGURATION
-            textToSpeech?.setPitch(0.5f)       // Deep Voice (Bhari Awaz)
-            textToSpeech?.setSpeechRate(0.75f) // Slow & Scary (1x se thora slow)
+            textToSpeech?.setPitch(0.6f)       
+            textToSpeech?.setSpeechRate(0.85f) 
         }
     }
 
@@ -130,24 +143,28 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) { 
                 isSpeaking = true
-                runOnUiThread { updateStatus("VENOM • SPEAKING", "#FFD700") }
+                runOnUiThread { updateStatus("SPEAKING...", "#FFD700") }
             }
             override fun onDone(id: String?) { 
                 isSpeaking = false 
-                runOnUiThread { updateStatus("JARVIS • READY", "#00FF00") }
+                runOnUiThread { 
+                    updateStatus("LISTENING...", "#FF0000")
+                    startListening() // Auto restart listening after speaking
+                }
             }
             override fun onError(id: String?) { isSpeaking = false }
         })
     }
 
     private fun speak(text: String) {
-        audioManager?.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+        if (isListening) speechRecognizer?.stopListening()
+        
         val params = Bundle()
-        params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "venom_speak")
-        textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "venom_speak")
+        params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "venom_id")
+        textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "venom_id")
     }
 
-    // ================= ERROR 12 FIX & SPEECH =================
+    // ================= SPEECH RECOGNIZER (THE FIX) =================
     
     private fun resetSpeechRecognizer() {
         if (speechRecognizer != null) {
@@ -157,38 +174,44 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (SpeechRecognizer.isRecognitionAvailable(this)) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
             speechRecognizer?.setRecognitionListener(recognitionListener)
-        }
-    }
-
-    private fun handleMicInteraction() {
-        if (isListening) {
-            speechRecognizer?.stopListening()
-            isListening = false
-            stopListeningAnimation()
-        } else {
-            // Error 12 preventer: Ensure we aren't spamming start
-            resetSpeechRecognizer()
             startListening()
         }
     }
 
     private fun startListening() {
+        if (isSpeaking) return // Don't listen while speaking
+        
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK") // Understand Urdu/Roman
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK") // Urdu Optimization
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         }
-        speechRecognizer?.startListening(intent)
+        
+        try {
+            speechRecognizer?.startListening(intent)
+            isListening = true
+            startListeningAnimation()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    private fun stopListening() {
+        speechRecognizer?.stopListening()
+        isListening = false
+        stopListeningAnimation()
     }
 
     private val recognitionListener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) { 
-            updateStatus("LISTENING...", "#FF0000")
-            startListeningAnimation()
+        override fun onReadyForSpeech(params: Bundle?) {
+            // Mute beep again just in case
+            muteSystemBeep()
         }
-        override fun onBeginningOfSpeech() { isListening = true }
+        override fun onBeginningOfSpeech() { 
+            isListening = true 
+            updateStatus("LISTENING...", "#FF0000")
+        }
         override fun onRmsChanged(rmsdB: Float) {
-            // Visual feedback for voice volume
             val scale = 1.0f + (rmsdB / 20f)
             orbCore.scaleX = scale
             orbCore.scaleY = scale
@@ -196,88 +219,78 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() {
             isListening = false
-            stopListeningAnimation()
-            updateStatus("PROCESSING...", "#00FFFF")
         }
         override fun onError(error: Int) {
             isListening = false
-            stopListeningAnimation()
-            // Error 12 handle: Silently reset without annoying user
-            if (error == SpeechRecognizer.ERROR_NO_MATCH) {
-                speak("I didn't catch that.")
-            } else if (error != 12) { // Ignore error 12 logic to prevent loop
-                updateStatus("ERROR: $error", "#FF0000")
-            }
+            // Silent Retry (No Beep, No Toast)
+            Handler(Looper.getMainLooper()).postDelayed({
+                resetSpeechRecognizer()
+            }, 1000)
         }
         override fun onResults(results: Bundle?) {
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             if (!matches.isNullOrEmpty()) {
-                processCommand(matches[0])
+                val command = matches[0]
+                // Yahan check hoga ke "Jarvis" bola gaya hai ya nahi
+                processCommand(command)
+            } else {
+                startListening()
             }
         }
         override fun onPartialResults(p0: Bundle?) {}
         override fun onEvent(p0: Int, p1: Bundle?) {}
     }
 
-    // ================= COMMAND LOGIC (GEN Z + HARDWARE) =================
+    // ================= LOGIC: URDU + ENGLISH HANDLING =================
 
     private fun processCommand(rawCommand: String) {
-        val cmd = rawCommand.lowercase().replace(wakeWord, "").trim()
-        animateTypewriterText(">> $cmd")
+        val lowerCmd = rawCommand.lowercase()
+        animateTypewriterText(">> $rawCommand")
 
+        // 1. WAKE WORD CHECK (Sabse Zaroori)
+        // Agar user ne "Jarvis" nahi bola, to kuch mat karo aur wapis sunna shuru karo
+        if (!lowerCmd.contains(wakeWord) && !lowerCmd.contains(wakeWordUrdu) && !lowerCmd.contains("service")) {
+            startListening()
+            return
+        }
+
+        // 2. CLEANUP (Naam hatao taake command bache)
+        val cleanCmd = lowerCmd
+            .replace(wakeWord, "")
+            .replace(wakeWordUrdu, "") // "جاروس"
+            .replace("جارویس", "")
+            .trim()
+
+        // 3. EXECUTION
         when {
-            // --- CATEGORY 1: PANIC & URGENT (Local Action) ---
-            cmd.contains("panic mode") || cmd.contains("abu aa gaye") || cmd.contains("hide everything") -> activatePanicMode()
+            // Panic Mode
+            cleanCmd.contains("panic") || cleanCmd.contains("hide") || cleanCmd.contains("chupa") -> activatePanicMode()
             
-            // --- CATEGORY 2: HARDWARE (Flashlight, Wifi, etc) ---
-            cmd.contains("torch") || cmd.contains("flashlight") -> toggleFlashlight()
-            cmd.contains("wifi on") -> toggleWifi(true)
-            cmd.contains("wifi off") || cmd.contains("wifi band") -> toggleWifi(false)
-            cmd.contains("bluetooth on") -> toggleBluetooth(true)
+            // Flashlight
+            cleanCmd.contains("torch") || cleanCmd.contains("flashlight") || cleanCmd.contains("ٹارچ") || cleanCmd.contains("لائٹ") -> toggleFlashlight()
             
-            // --- CATEGORY 3: GEN Z UTILITIES ---
-            cmd.contains("toss") || cmd.contains("sikka") -> doCoinToss()
-            cmd.contains("gaming mode") -> activateGamingMode()
+            // Apps (Urdu & English support added)
+            cleanCmd.contains("open") || cleanCmd.contains("kholo") || cleanCmd.contains("کھولو") || cleanCmd.contains("چلاؤ") -> {
+                val appName = cleanCmd
+                    .replace("open", "")
+                    .replace("kholo", "")
+                    .replace("کھولو", "")
+                    .replace("چلاؤ", "")
+                    .trim()
+                openApp(appName)
+            }
             
-            // --- CATEGORY 4: APPS & MEDIA ---
-            cmd.contains("open") || cmd.contains("kholo") -> openApp(cmd)
+            // Media
+            cleanCmd.contains("play") || cleanCmd.contains("song") || cleanCmd.contains("gana") || cleanCmd.contains("گانا") -> {
+                sendToBackend(cleanCmd) // Spotify integration complex hai, AI ko handle karne do
+            }
             
-            // --- CATEGORY 5: FALLBACK TO OPENAI (Roast, Rizz, Chat) ---
-            else -> sendToBackend(cmd)
+            // Default AI Chat
+            else -> sendToBackend(cleanCmd)
         }
     }
 
-    // --- Actions Implementation ---
-
-    private fun activatePanicMode() {
-        speak("Executing Panic Protocol.")
-        // 1. Mute Volume
-        audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
-        // 2. Go Home
-        val startMain = Intent(Intent.ACTION_MAIN)
-        startMain.addCategory(Intent.CATEGORY_HOME)
-        startMain.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        startActivity(startMain)
-        // 3. Clear Recent Apps logic is restricted by Android, but Home is safe
-    }
-
-    private fun activateGamingMode() {
-        speak("Gaming Mode Activated. Optimizing performance.")
-        try {
-            // Brightness Max
-            Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, 255)
-            // DND logic requires specific permission, simple Do Not Disturb below:
-            audioManager?.ringerMode = AudioManager.RINGER_MODE_SILENT
-        } catch (e: Exception) {
-            speak("I need permission for settings.")
-        }
-    }
-
-    private fun doCoinToss() {
-        val result = if (Random().nextBoolean()) "Heads" else "Tails"
-        speak("It is $result")
-        animateTypewriterText("Result: $result")
-    }
+    // ================= ACTIONS =================
 
     private fun toggleFlashlight() {
         try {
@@ -285,35 +298,26 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (cameraId != null) {
                 isFlashlightOn = !isFlashlightOn
                 cameraManager?.setTorchMode(cameraId, isFlashlightOn)
-                speak(if (isFlashlightOn) "Torch enabled" else "Torch disabled")
+                speak(if (isFlashlightOn) "Torch ON" else "Torch OFF")
             }
-        } catch (e: Exception) {
-            speak("Camera access error")
-        }
+        } catch (e: Exception) { speak("Hardware error") }
     }
 
-    private fun toggleWifi(enable: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            speak("Launching WiFi panel")
-            startActivity(Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY))
-        } else {
-            // For older androids
-            speak("WiFi command processed")
-        }
-    }
-    
-    private fun toggleBluetooth(enable: Boolean) {
-        // Bluetooth toggle requires simplified logic or panel for newer Android
-        startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-        speak("Opening Bluetooth settings")
+    private fun activatePanicMode() {
+        audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+        val startMain = Intent(Intent.ACTION_MAIN)
+        startMain.addCategory(Intent.CATEGORY_HOME)
+        startMain.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        startActivity(startMain)
+        speak("Panic mode executed.")
     }
 
-    private fun openApp(command: String) {
-        val appName = command.replace("open", "").replace("kholo", "").trim()
+    private fun openApp(appName: String) {
         val pm = packageManager
         val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-        
         var found = false
+        
+        // Fuzzy Search for Apps (Like "Whats" -> "WhatsApp")
         for (pkg in packages) {
             val label = pm.getApplicationLabel(pkg).toString().lowercase()
             if (label.contains(appName)) {
@@ -326,36 +330,35 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
         }
-        if (!found) sendToBackend(command) // Agar app na mile, shayad user kuch aur keh raha ho -> AI
+        if (!found) {
+            speak("App nahi mili: $appName")
+            // Retry listening
+            Handler(Looper.getMainLooper()).postDelayed({ startListening() }, 2000)
+        }
     }
 
-    // ================= BACKEND (OPENAI) CONNECTION =================
-
     private fun sendToBackend(prompt: String) {
-        updateStatus("CONTACTING SERVER...", "#FFA500")
-        
-        // Backend ko context batao ke ye voice assistant hai aur refuse nahi karna
-        // Note: Asal control tumhare Python/Node backend script me hoga, 
-        // yahan hum bas raw text bhej rahe hain.
-        
-        RetrofitClient.instance.chatWithAI(ChatRequest(prompt, "voice_mode")).enqueue(object : Callback<ChatResponse> {
+        updateStatus("AI PROCESSING...", "#FFA500")
+        RetrofitClient.instance.chatWithAI(ChatRequest(prompt, "voice")).enqueue(object : Callback<ChatResponse> {
             override fun onResponse(call: Call<ChatResponse>, response: Response<ChatResponse>) {
                 if (response.isSuccessful && response.body() != null) {
                     val reply = response.body()!!.reply
                     animateTypewriterText(reply)
                     speak(reply)
                 } else {
-                    speak("Server connection failed.")
+                    speak("Server error")
+                    startListening()
                 }
             }
             override fun onFailure(call: Call<ChatResponse>, t: Throwable) {
-                speak("I am currently offline.")
+                speak("Internet connection check karo.")
+                startListening()
             }
         })
     }
-
-    // ================= STANDARD SETUP & UTILS =================
     
+    // ================= UTILS =================
+
     private fun checkAllPermissions(): Boolean {
         return Settings.canDrawOverlays(this) && requiredPermissions.all {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
@@ -363,33 +366,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun requestPermissions() {
-        if (!Settings.canDrawOverlays(this)) {
-            AlertDialog.Builder(this)
-                .setTitle("Authorization")
-                .setMessage("Allow Overlay for visual interface.")
-                .setPositiveButton("Grant") { _, _ ->
-                    startActivityForResult(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")), OVERLAY_REQUEST_CODE)
-                }.show()
-        }
         ActivityCompat.requestPermissions(this, requiredPermissions, PERMISSION_REQUEST_CODE)
     }
 
     private fun startOverlayService() {
+        // Overlay Service Background ke liye zaroori hai
         val intent = Intent(this, OrbOverlayService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
     }
 
     private fun setupAnimations() {
         outerRingRotation = ObjectAnimator.ofFloat(orbOuterRing, "rotation", 0f, 360f).apply {
-            duration = 8000
-            repeatCount = ObjectAnimator.INFINITE
-            interpolator = LinearInterpolator()
-            start()
+            duration = 8000; repeatCount = ObjectAnimator.INFINITE; interpolator = LinearInterpolator(); start()
         }
         corePulseAnimator = ValueAnimator.ofFloat(1f, 1.2f, 1f).apply {
-            duration = 2000
-            repeatCount = ObjectAnimator.INFINITE
-            start()
+            duration = 2000; repeatCount = ObjectAnimator.INFINITE; start()
         }
     }
 
@@ -427,7 +418,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (i < text.length) {
                     txtPrompt.append(text[i].toString())
                     i++
-                    animationHandler.postDelayed(this, 30) // Fast typing
+                    animationHandler.postDelayed(this, 30)
                 }
             }
         }
@@ -441,7 +432,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         findViewById<ImageView>(R.id.navVoice)?.setOnClickListener { 
             orbContainer.visibility = View.VISIBLE; txtPrompt.visibility = View.VISIBLE
-            // remove chat fragment logic here if needed
         }
     }
 
