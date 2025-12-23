@@ -3,52 +3,36 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.romeo.jarvis">
 
-    <!-- 
-        JARVIS AI - Android Manifest v2.0
-        Production-ready configuration for AI voice assistant
-    -->
-
-    <!-- ================= ESSENTIAL PERMISSIONS ================= -->
-    <!-- Network & Connectivity -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     
-    <!-- Core Voice & Audio -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     
-    <!-- Foreground Service (Mandatory for Android 9+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     
-    <!-- Floating Orb Overlay -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     
-    <!-- Device Control -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     
-    <!-- WiFi & Bluetooth (Runtime permission needed for API 31+) -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     
-    <!-- Storage (Scoped Storage compliant) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
                     android:maxSdkVersion="29" />
 
-    <!-- ================= QUERIES (Android 11+) ================= -->
-    <!-- Required to query installed apps and system services -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
-        </intent-filter>
-        <intent>
+        </intent> <intent>
             <action android:name="android.intent.action.ASSIST" />
         </intent>
         <intent>
@@ -59,7 +43,6 @@
         </intent>
     </queries>
 
-    <!-- ================= APPLICATION ================= -->
     <application
         android:name=".JarvisApp"
         android:allowBackup="true"
@@ -72,14 +55,12 @@
         android:enableOnBackInvokedCallback="true"
         tools:targetApi="tiramisu">
 
-        <!-- ================= MAIN ACTIVITY ================= -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|keyboardHidden|navigation"
             android:windowSoftInputMode="adjustResize"
-            <!-- Deprecated in API 27+, use WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED programmatically -->
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
             android:screenOrientation="portrait">
@@ -87,12 +68,10 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <!-- Makes Jarvis available as home alternative -->
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             
-            <!-- Voice assistant integration -->
             <intent-filter>
                 <action android:name="android.intent.action.VOICE_COMMAND" />
                 <action android:name="android.intent.action.ASSIST" />
@@ -100,7 +79,6 @@
             </intent-filter>
         </activity>
 
-        <!-- ================= FOREGROUND SERVICES ================= -->
         <service
             android:name=".services.JarvisService"
             android:exported="false"
@@ -114,7 +92,6 @@
             android:stopWithTask="false"
             android:enabled="true" />
 
-        <!-- ================= ACCESSIBILITY SERVICE ================= -->
         <service
             android:name=".services.JarvisAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
@@ -130,7 +107,6 @@
                 android:resource="@xml/jarvis_accessibility_config" />
         </service>
 
-        <!-- ================= BROADCAST RECEIVERS ================= -->
         <receiver
             android:name=".receivers.BootReceiver"
             android:exported="false"
