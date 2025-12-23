@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Jarvis AI</string>
-    <string name="accessibility_service_description">Jarvis AI Automation Service</string>
+    <string name="accessibility_service_description">JARVIS AI needs accessibility access to control apps and system functions.</string>
+
 </resources>
