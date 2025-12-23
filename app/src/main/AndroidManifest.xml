@@ -1,90 +1,169 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.romeo.jarvis">
 
-    <!-- ================= CORE PERMISSIONS ================= -->
+    <!-- 
+        JARVIS AI - Android Manifest v2.0
+        Production-ready configuration for AI voice assistant
+    -->
 
+    <!-- ================= ESSENTIAL PERMISSIONS ================= -->
+    <!-- Network & Connectivity -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    
+    <!-- Core Voice & Audio -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
-    <!-- Foreground + background listening -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    
+    <!-- Foreground Service (Mandatory for Android 9+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-
-    <!-- Lock screen + overlay -->
+    
+    <!-- Floating Orb Overlay -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-
-    <!-- App & system control -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    
+    <!-- Device Control -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-
-    <!-- File control (offline tasks) -->
+    
+    <!-- WiFi & Bluetooth (Runtime permission needed for API 31+) -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    
+    <!-- Storage (Scoped Storage compliant) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
-    <uses-permission
-        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
-        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
+                    android:maxSdkVersion="29" />
 
-    <!-- Termux / command execution (advanced use) -->
-    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <!-- ================= QUERIES (Android 11+) ================= -->
+    <!-- Required to query installed apps and system services -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+        <intent>
+            <action android:name="android.intent.action.ASSIST" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+        </intent>
+    </queries>
 
     <!-- ================= APPLICATION ================= -->
-
     <application
         android:name=".JarvisApp"
         android:allowBackup="true"
         android:icon="@drawable/app_icon"
-        android:label="Jarvis AI"
+        android:label="JARVIS AI"
         android:roundIcon="@drawable/app_icon"
+        android:supportsRtl="true"
         android:theme="@style/Theme.Jarvis.NoActionBar"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        android:enableOnBackInvokedCallback="true"
+        tools:targetApi="tiramisu">
 
         <!-- ================= MAIN ACTIVITY ================= -->
-
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|keyboardHidden|navigation"
+            android:windowSoftInputMode="adjustResize"
+            <!-- Deprecated in API 27+, use WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED programmatically -->
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
-            android:launchMode="singleTask"
-            android:excludeFromRecents="false">
-
+            android:screenOrientation="portrait">
+            
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- Makes Jarvis available as home alternative -->
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            
+            <!-- Voice assistant integration -->
+            <intent-filter>
+                <action android:name="android.intent.action.VOICE_COMMAND" />
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 
-        <!-- ================= JARVIS FOREGROUND SERVICE ================= -->
-
+        <!-- ================= FOREGROUND SERVICES ================= -->
         <service
             android:name=".services.JarvisService"
             android:exported="false"
             android:foregroundServiceType="microphone"
-            android:stopWithTask="false" />
-<service
-    android:name=".services.OrbOverlayService"
-    android:exported="false"
-    android:stopWithTask="false"/>
+            android:stopWithTask="false"
+            android:enabled="true" />
+        
+        <service
+            android:name=".services.OrbOverlayService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:enabled="true" />
 
-        <!-- ================= ACCESSIBILITY SERVICE (CORE POWER) ================= -->
-
+        <!-- ================= ACCESSIBILITY SERVICE ================= -->
         <service
             android:name=".services.JarvisAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false">
-
+            android:exported="false"
+            android:enabled="true">
+            
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
-
+            
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/jarvis_accessibility_config" />
         </service>
+
+        <!-- ================= BROADCAST RECEIVERS ================= -->
+        <receiver
+            android:name=".receivers.BootReceiver"
+            android:exported="false"
+            android:enabled="true"
+            android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+            
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receivers.ScreenStateReceiver"
+            android:exported="false"
+            android:enabled="true">
+            
+            <intent-filter>
+                <action android:name="android.intent.action.SCREEN_ON" />
+                <action android:name="android.intent.action.SCREEN_OFF" />
+                <action android:name="android.intent.action.USER_PRESENT" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receivers.ConnectivityReceiver"
+            android:exported="false"
+            android:enabled="true">
+            
+            <intent-filter>
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>
