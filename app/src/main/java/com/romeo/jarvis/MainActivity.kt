@@ -2,16 +2,15 @@ package com.romeo.jarvis
 
 import android.Manifest
 import android.animation.*
-import android.app.ActivityManager
-import android.app.AlertDialog
+import android.app.*
 import android.content.*
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.media.AudioManager
+import android.media.MediaPlayer
+import android.media.ToneGenerator
 import android.net.Uri
-import android.os.Build
-import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.os.*
 import android.provider.ContactsContract
 import android.provider.Settings
 import android.speech.RecognitionListener
@@ -20,13 +19,15 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.animation.*
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.fragment.app.Fragment
 import com.romeo.jarvis.fragments.ChatFragment
 import com.romeo.jarvis.utils.ChatRequest
 import com.romeo.jarvis.utils.ChatResponse
@@ -35,7 +36,6 @@ import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import java.util.*
-import kotlin.collections.ArrayList
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
@@ -60,6 +60,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var textToSpeech: TextToSpeech? = null
     private var audioManager: AudioManager? = null
     
+    // Overlay Service
+    private val OVERLAY_REQUEST_CODE = 102
+    private var overlayServiceIntent: Intent? = null
+    
     // State Management
     private var isListening = false
     private var isProcessing = false
@@ -70,7 +74,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         Manifest.permission.RECORD_AUDIO,
         Manifest.permission.CALL_PHONE,
         Manifest.permission.SEND_SMS,
-        Manifest.permission.READ_CONTACTS
+        Manifest.permission.READ_CONTACTS,
+        Manifest.permission.BLUETOOTH_CONNECT
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,15 +84,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         
         // Initialize systems in order
         initializeViews()
+        createNotificationChannel() // Critical for service
         setupTextToSpeech()
         setupSpeechRecognizer()
         setupAnimations()
         setupNavigation()
-        checkPermissions()
+        checkAllPermissions()
         
         // Status update
         updateStatus("JARVIS • ONLINE", "#00FF00")
         animateTypewriterText("System initialized. How may I assist you, sir?")
+        
+        // Start overlay if permission granted
+        if (Settings.canDrawOverlays(this)) {
+            startOverlayService()
+        }
     }
 
     private fun initializeViews() {
@@ -102,6 +113,85 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         
         // Mic button click listener
         btnMic.setOnClickListener { handleMicButtonClick() }
+    }
+
+    // ================= OVERLAY SERVICE =================
+
+    private fun checkAllPermissions() {
+        // Runtime permissions
+        val missingPermissions = requiredPermissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        
+        if (missingPermissions.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missingPermissions.toTypedArray(), 101)
+        }
+        
+        // Overlay permission (critical for floating orb)
+        if (!Settings.canDrawOverlays(this)) {
+            showOverlayPermissionDialog()
+        }
+    }
+
+    private fun showOverlayPermissionDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Overlay Permission Required")
+            .setMessage("JARVIS needs overlay permission to show the floating orb. This allows quick access from any screen.")
+            .setPositiveButton("Grant") { _, _ ->
+                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, 
+                    Uri.parse("package:$packageName"))
+                startActivityForResult(intent, OVERLAY_REQUEST_CODE)
+            }
+            .setNegativeButton("Cancel") { dialog, _ ->
+                dialog.dismiss()
+                Toast.makeText(this, "Floating orb will not be available without overlay permission", Toast.LENGTH_LONG).show()
+            }
+            .show()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == OVERLAY_REQUEST_CODE) {
+            if (Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "Overlay permission granted!", Toast.LENGTH_SHORT).show()
+                startOverlayService()
+            } else {
+                Toast.makeText(this, "Overlay permission denied. Floating orb disabled.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun startOverlayService() {
+        overlayServiceIntent = Intent(this, OrbOverlayService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(overlayServiceIntent)
+        } else {
+            startService(overlayServiceIntent)
+        }
+        Toast.makeText(this, "Floating orb activated", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopOverlayService() {
+        overlayServiceIntent?.let {
+            stopService(it)
+            Toast.makeText(this, "Floating orb deactivated", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ================= NOTIFICATION CHANNEL =================
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channelId = "jarvis_service_channel"
+            val channelName = "JARVIS AI Service"
+            val channel = NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_LOW).apply {
+                description = "JARVIS AI background voice service"
+                setSound(null, null)
+            }
+            
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager.createNotificationChannel(channel)
+        }
     }
 
     // ================= ANIMATION SYSTEM =================
@@ -142,16 +232,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun setupMicButtonAnimations() {
-        // Default state - subtle breathing effect
         btnMic.animate().scaleX(1f).scaleY(1f).duration = 0
     }
 
     private fun startListeningAnimation() {
         runOnUiThread {
-            // Stop default animations
             corePulseAnimator?.cancel()
             
-            // Start ripple effect
             listeningRippleAnimator = AnimatorSet().apply {
                 val ripple1 = ObjectAnimator.ofFloat(orbCore, "scaleX", 1f, 1.5f).apply {
                     duration = 800
@@ -172,20 +259,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 start()
             }
 
-            // Mic button pulse
-            btnMic.animate().scaleX(1.2f).scaleY(1.2f).duration = 300
+            btnMic.animate().scaleX(1.2f).scaleY(1.2f).setDuration(300).start()
         }
     }
 
     private fun stopListeningAnimation() {
         listeningRippleAnimator?.cancel()
-        setupOrbAnimations() // Restart default animations
-        btnMic.animate().scaleX(1f).scaleY(1f).duration = 300
+        setupOrbAnimations()
+        btnMic.animate().scaleX(1f).scaleY(1f).setDuration(300).start()
     }
 
     private fun updateStatus(status: String, colorHex: String) {
         statusLabel.text = status
-        statusLabel.setTextColor(android.graphics.Color.parseColor(colorHex))
+        statusLabel.setTextColor(Color.parseColor(colorHex))
     }
 
     // ================= TYPEWRITER ANIMATION =================
@@ -276,7 +362,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
 
             override fun onRmsChanged(rmsdB: Float) {
-                // Could animate orb based on volume level
                 orbCore.alpha = 0.5f + (rmsdB / 10).coerceIn(0f, 0.5f)
             }
 
@@ -344,27 +429,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val actualCommand = command.replace(wakeWord, "").trim()
 
         when {
-            // App Control
             actualCommand.startsWith("open") -> openApp(actualCommand.removePrefix("open").trim())
-            
-            // Messaging
             actualCommand.startsWith("send message") -> parseSendMessage(actualCommand)
-            
-            // Calls
             actualCommand.startsWith("call") -> makeCall(actualCommand.removePrefix("call").trim())
-            
-            // Media Control
-            actualCommand.contains("play music") || actualCommand.contains("pause music") -> controlMedia(actualCommand)
-            actualCommand.contains("next song") || actualCommand.contains("previous song") -> controlMedia(actualCommand)
-            
-            // Volume Control
+            actualCommand.contains(Regex("play|pause|next|previous")) -> controlMedia(actualCommand)
             actualCommand.contains("volume") -> controlVolume(actualCommand)
-            
-            // System Commands
-            actualCommand.contains("turn on wifi") || actualCommand.contains("turn off wifi") -> toggleWifi(actualCommand)
-            actualCommand.contains("turn on bluetooth") || actualCommand.contains("turn off bluetooth") -> toggleBluetooth(actualCommand)
-            
-            // General Query
+            actualCommand.contains(Regex("turn (on|off) wifi")) -> toggleWifi(actualCommand)
+            actualCommand.contains(Regex("turn (on|off) bluetooth")) -> toggleBluetooth(actualCommand)
             else -> connectToBackend(actualCommand)
         }
     }
@@ -388,8 +459,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun openApp(appName: String) {
         val pm = packageManager
-        val mainIntent = Intent(Intent.ACTION_MAIN, null)
-        mainIntent.addCategory(Intent.CATEGORY_LAUNCHER)
+        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
         
         try {
             val apps = pm.queryIntentActivities(mainIntent, 0)
@@ -405,23 +475,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 speak("Opening ${appName.capitalize()}")
             } else {
                 animateTypewriterText("App not found: $appName")
-                speak("I could not find $appName on your device.")
+                speak("I could not find $appName")
             }
         } catch (e: Exception) {
             animateTypewriterText("Error opening app")
+            Log.e("JarvisApp", "Error: ${e.message}")
         }
         isProcessing = false
     }
 
     private fun parseSendMessage(command: String) {
-        // Expected: "send message to [contact] [message]"
         val regex = """send message to (\w+) (.+)""".toRegex()
         val match = regex.find(command)
         
         if (match != null) {
-            val contact = match.groupValues[1]
-            val message = match.groupValues[2]
-            sendMessage(contact, message)
+            sendMessage(match.groupValues[1], match.groupValues[2])
         } else {
             animateTypewriterText("Say: 'send message to [contact] [message]'")
             speak("Please specify contact and message")
@@ -433,20 +501,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val contacts = getContactsByName(contactName)
             if (contacts.isNotEmpty()) {
                 val phoneNumber = contacts[0].phoneNumber
-                try {
-                    val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
-                        data = Uri.parse("smsto:$phoneNumber")
-                        putExtra("sms_body", message)
-                    }
-                    startActivity(smsIntent)
-                    animateTypewriterText("Message sent to $contactName")
-                    speak("Message sent to $contactName")
-                } catch (e: Exception) {
-                    animateTypewriterText("Failed to send message")
+                val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
+                    data = Uri.parse("smsto:$phoneNumber")
+                    putExtra("sms_body", message)
                 }
+                startActivity(smsIntent)
+                animateTypewriterText("Message sent to $contactName")
+                speak("Message sent to $contactName")
             } else {
                 animateTypewriterText("Contact not found")
-                speak("I could not find $contactName in your contacts")
+                speak("Contact $contactName not found")
             }
         } else {
             animateTypewriterText("Contact permission needed")
@@ -457,31 +521,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun getContactsByName(name: String): List<Contact> {
         val contacts = mutableListOf<Contact>()
-        val contentResolver = contentResolver
         val cursor = contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-            arrayOf(
-                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-                ContactsContract.CommonDataKinds.Phone.NUMBER
-            ),
-            null,
-            null,
-            null
+            arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+            null, null, null
         )
         
         cursor?.use {
             val nameIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
             val numberIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
             
-            while (it.moveToNext()) {
-                val contactName = it.getString(nameIndex).lowercase()
-                if (contactName.contains(name.lowercase())) {
-                    contacts.add(
-                        Contact(
-                            name = it.getString(nameIndex),
-                            phoneNumber = it.getString(numberIndex)
-                        )
-                    )
+            if (nameIndex != -1 && numberIndex != -1) {
+                while (it.moveToNext()) {
+                    val contactName = it.getString(nameIndex).lowercase()
+                    if (contactName.contains(name.lowercase())) {
+                        contacts.add(Contact(it.getString(nameIndex), it.getString(numberIndex)))
+                    }
                 }
             }
         }
@@ -503,6 +558,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 speak("Calling ${contacts[0].name}")
             } else {
                 animateTypewriterText("Contact not found")
+                speak("Contact $contactName not found")
             }
         } else {
             animateTypewriterText("Call permission needed")
@@ -512,63 +568,55 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun controlMedia(command: String) {
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        
         when {
-            command.contains("play") -> {
-                sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PLAY)
-            }
-            command.contains("pause") -> {
-                sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PAUSE)
-            }
-            command.contains("next") -> {
-                sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_NEXT)
-            }
-            command.contains("previous") -> {
-                sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
-            }
+            command.contains("play") -> sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PLAY)
+            command.contains("pause") -> sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PAUSE)
+            command.contains("next") -> sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_NEXT)
+            command.contains("previous") -> sendMediaKeyEvent(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
         }
-        
-        animateTypewriterText("Command executed: $command")
+        animateTypewriterText("Media command executed")
         speak("Media control activated")
         isProcessing = false
     }
 
     private fun sendMediaKeyEvent(keyCode: Int) {
         try {
-            val eventTime = System.currentTimeMillis()
-            val downEvent = android.view.KeyEvent(eventTime, eventTime, android.view.KeyEvent.ACTION_DOWN, keyCode, 0)
-            val upEvent = android.view.KeyEvent(eventTime, eventTime, android.view.KeyEvent.ACTION_UP, keyCode, 0)
-            
+            val eventTime = SystemClock.uptimeMillis()
+            val downEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, keyCode, 0)
+            val upEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_UP, keyCode, 0)
             audioManager?.dispatchMediaKeyEvent(downEvent)
             audioManager?.dispatchMediaKeyEvent(upEvent)
         } catch (e: Exception) {
-            Log.e("JarvisMedia", "Error sending media key event", e)
+            Log.e("JarvisMedia", "Error: ${e.message}")
         }
     }
 
     private fun controlVolume(command: String) {
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val maxVolume = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: return
+        val current = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: return
         
         when {
             command.contains("up") || command.contains("increase") -> {
-                val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, (current + 2).coerceAtMost(maxVolume), 0)
-                animateTypewriterText("Volume increased")
+                val newVolume = (current + 2).coerceAtMost(maxVolume)
+                audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
+                animateTypewriterText("Volume: $newVolume/$maxVolume")
+                speak("Volume up")
             }
             command.contains("down") || command.contains("decrease") -> {
-                val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, (current - 2).coerceAtLeast(0), 0)
-                animateTypewriterText("Volume decreased")
+                val newVolume = (current - 2).coerceAtLeast(0)
+                audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
+                animateTypewriterText("Volume: $newVolume/$maxVolume")
+                speak("Volume down")
             }
-            command.contains("max") || command.contains("maximum") -> {
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVolume, 0)
-                animateTypewriterText("Volume set to maximum")
+            command.contains("max") -> {
+                audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, maxVolume, 0)
+                animateTypewriterText("Maximum volume")
+                speak("Volume maximum")
             }
-            command.contains("min") || command.contains("minimum") || command.contains("mute") -> {
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
-                animateTypewriterText("Volume muted")
+            command.contains("min") || command.contains("mute") -> {
+                audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+                animateTypewriterText("Muted")
+                speak("Volume muted")
             }
         }
         isProcessing = false
@@ -577,18 +625,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun toggleWifi(command: String) {
         try {
             val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-            if (command.contains("on")) {
-                wifiManager.isWifiEnabled = true
-                animateTypewriterText("WiFi turned on")
-                speak("WiFi enabled")
-            } else {
-                wifiManager.isWifiEnabled = false
-                animateTypewriterText("WiFi turned off")
-                speak("WiFi disabled")
-            }
-        } catch (e: Exception) {
-            animateTypewriterText("WiFi control failed")
+            val enable = command.contains("on")
+            wifiManager.isWifiEnabled = enable
+            animateTypewriterText("WiFi ${if(enable) "enabled" else "disabled"}")
+            speak("WiFi ${if(enable) "enabled" else "disabled"}")
+        } catch (e: SecurityException) {
+            animateTypewriterText("System permission required")
             openSystemSettings()
+        } catch (e: Exception) {
+            Log.e("JarvisWiFi", "Error: ${e.message}")
         }
         isProcessing = false
     }
@@ -596,25 +641,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun toggleBluetooth(command: String) {
         try {
             val bluetoothAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
-            if (command.contains("on")) {
-                bluetoothAdapter.enable()
-                animateTypewriterText("Bluetooth turned on")
-                speak("Bluetooth enabled")
-            } else {
-                bluetoothAdapter.disable()
-                animateTypewriterText("Bluetooth turned off")
-                speak("Bluetooth disabled")
-            }
-        } catch (e: Exception) {
-            animateTypewriterText("Bluetooth control failed")
+            val enable = command.contains("on")
+            if (enable) bluetoothAdapter?.enable() else bluetoothAdapter?.disable()
+            animateTypewriterText("Bluetooth ${if(enable) "enabled" else "disabled"}")
+            speak("Bluetooth ${if(enable) "enabled" else "disabled"}")
+        } catch (e: SecurityException) {
+            animateTypewriterText("System permission required")
             openSystemSettings()
+        } catch (e: Exception) {
+            Log.e("JarvisBluetooth", "Error: ${e.message}")
         }
         isProcessing = false
     }
 
     private fun openSystemSettings() {
-        val intent = Intent(Settings.ACTION_SETTINGS)
-        startActivity(intent)
+        startActivity(Intent(Settings.ACTION_SETTINGS))
     }
 
     // ================= BACKEND INTEGRATION =================
@@ -622,48 +663,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun connectToBackend(message: String) {
         animateTypewriterText("Processing...")
         
-        val request = ChatRequest(message = message, mode = "voice")
-        
-        RetrofitClient.instance.chatWithAI(request).enqueue(object : Callback<ChatResponse> {
+        RetrofitClient.instance.chatWithAI(ChatRequest(message, "voice")).enqueue(object : Callback<ChatResponse> {
             override fun onResponse(call: Call<ChatResponse>, response: Response<ChatResponse>) {
                 if (response.isSuccessful && response.body() != null) {
                     val aiReply = response.body()!!.reply
                     animateTypewriterText(aiReply) { speak(aiReply) }
                 } else {
-                    animateTypewriterText("Error: Backend response failed")
-                    speak("I encountered an error processing your request.")
+                    animateTypewriterText("Backend error")
+                    speak("I encountered an error")
                 }
                 isProcessing = false
             }
 
             override fun onFailure(call: Call<ChatResponse>, t: Throwable) {
-                animateTypewriterText("Connection error. Using offline mode.")
-                speak("I am offline. Limited functionality available.")
+                animateTypewriterText("Offline mode")
+                speak("I am offline")
+                Log.e("JarvisBackend", "Error: ${t.message}")
                 isProcessing = false
             }
         })
-    }
-
-    // ================= PERMISSIONS =================
-
-    private fun checkPermissions() {
-        val missingPermissions = requiredPermissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-        
-        if (missingPermissions.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, missingPermissions.toTypedArray(), 101)
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 101) {
-            val denied = grantResults.indices.filter { grantResults[it] != PackageManager.PERMISSION_GRANTED }
-            if (denied.isNotEmpty()) {
-                Toast.makeText(this, "Some features may not work without all permissions", Toast.LENGTH_LONG).show()
-            }
-        }
     }
 
     // ================= SOUND EFFECTS =================
@@ -674,11 +692,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             mediaPlayer.setOnCompletionListener { it.release() }
             mediaPlayer.start()
         } catch (e: Exception) {
-            Log.e("JarvisSound", "Sound file not found. Add 'ting_sound.mp3' to res/raw/")
+            // Fallback system beep
+            ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100).startTone(ToneGenerator.TONE_PROP_BEEP)
+            Log.e("JarvisSound", "Add 'ting_sound.mp3' to res/raw/")
         }
     }
 
-    // ================= NAVIGATION (FIXED) =================
+    // ================= NAVIGATION =================
 
     private fun setupNavigation() {
         findViewById<ImageView>(R.id.navVoice)?.setOnClickListener { updateUIState("Voice") }
@@ -688,11 +708,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun updateUIState(state: String) {
-        // Reset all nav icons
         listOf(R.id.navVoice, R.id.navChat, R.id.navData, R.id.navSettings).forEach { id ->
             findViewById<ImageView>(id)?.apply {
                 alpha = 0.5f
-                setColorFilter(ContextCompat.getColor(this@MainActivity, android.R.color.white))
+                setColorFilter(Color.WHITE)
             }
         }
 
@@ -721,7 +740,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         .commit()
                 }
             }
-            "Data" -> Toast.makeText(this, "System Data: ${getSystemInfo()}", Toast.LENGTH_LONG).show()
+            "Data" -> Toast.makeText(this, getSystemInfo(), Toast.LENGTH_LONG).show()
             "Settings" -> openSystemSettings()
         }
     }
@@ -730,14 +749,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val runtime = Runtime.getRuntime()
         val usedMemory = (runtime.totalMemory() - runtime.freeMemory()) / 1048576L
         val maxMemory = runtime.maxMemory() / 1048576L
-        return "Memory: ${usedMemory}MB / ${maxMemory}MB"
+        val battery = getBatteryLevel()
+        return "Memory: ${usedMemory}MB/${maxMemory}MB | Battery: $battery%"
+    }
+    
+    private fun getBatteryLevel(): Int {
+        val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        return batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
     }
 
     // ================= LIFECYCLE =================
 
     override fun onDestroy() {
         super.onDestroy()
-        // Clean up all resources
         speechRecognizer?.destroy()
         textToSpeech?.stop()
         textToSpeech?.shutdown()
@@ -745,10 +769,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         corePulseAnimator?.cancel()
         listeningRippleAnimator?.cancel()
         typewriterRunnable?.let { animationHandler.removeCallbacks(it) }
+        stopOverlayService()
     }
 
     override fun onPause() {
         super.onPause()
         if (isListening) stopVoiceRecognition()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-check permissions when returning
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Overlay permission missing. Floating orb disabled.", Toast.LENGTH_SHORT).show()
+        }
     }
 }
